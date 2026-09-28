@@ -1,33 +1,34 @@
 # Pneuma Core
 
-AIキャラクターに「内面」を与えるPythonフレームワーク。
+为 AI 角色赋予「内心」的 Python 框架。
 
-性格、感情、記憶を持つキャラクターを作り、会話を重ねるほど関係性が育っていく仕組みを提供する。
+它提供这样一套机制：创建一个拥有性格、情感、记忆的角色，随着对话不断累积，角色与人之间的关系会逐渐成长。
 
-## Features
+## 特性
 
-- **感情が動的に変化する** -- PAD 3次元モデル + Big Five性格特性に基づき、会話内容に応じて感情がリアルタイムで変化。性格によって反応が異なり、時間とともにベースラインへ自然減衰する
-- **記憶を性格に合わせて思い出す** -- エピソード記憶とセマンティック記憶をBig Fiveバイアス付きRAGで検索。共感性が高いキャラは感情に関する記憶を、知的好奇心が高いキャラは事実に関する記憶を優先的に思い出す
-- **毎ターン、キャラの内面がプロンプトに自動反映** -- 性格、現在の感情、記憶、関係性を毎回のプロンプトに自動組み込み。開発者がプロンプトエンジニアリングを頑張る必要はない
+- **情感动态变化** —— 基于 PAD 三维模型 + Big Five 人格特质，情感会随对话内容实时变化。不同性格的角色反应各不相同，并会随时间自然衰减回基线。
+- **按性格检索记忆** —— 通过带有 Big Five 偏置的 RAG 检索情节记忆与语义记忆。共情性高的角色会优先想起与情感相关的记忆，求知欲高的角色则优先想起事实性记忆。
+- **每轮自动将角色内心注入提示词** —— 性格、当前情感、记忆、关系性都会被自动嵌入每一轮提示词。开发者无需再费心去做提示词工程。
 
-## Installation
+## 安装
 
 ```bash
 pip install pneuma-core
 ```
 
-LLMアダプター込み:
+包含 LLM 适配器:
 
 ```bash
 pip install pneuma-core[all]
 ```
 
-## Quick Start
+## 快速开始
 
-### 1. キャラクターを定義する (YAML)
+### 1. 定义角色 (YAML)
 
 ```yaml
 # aine.character.yaml
+id: aine-001
 name: アイネ
 personality:
   openness: 0.9
@@ -35,37 +36,74 @@ personality:
   extraversion: 0.3
   agreeableness: 0.8
   neuroticism: 0.6
+values:
+  self_transcendence: 0.3
+  self_enhancement: 0.5
+  openness_to_change: 0.8
+  conservation: 0.2
 profile: |
   内向的だけど好奇心が強い。
 speaking_style: |
   丁寧だけど時々素が出る。
+initial_state:
+  pleasure: 0.0
+  arousal: 0.0
+  dominance: 0.0
+  emotion_label: 中立
+  situation: 初めての会話
 ```
 
-### 2. キャラクターと会話する
+### 2. 与角色对话
 
 ```python
 import asyncio
+from pathlib import Path
+
 from pneuma_core.character_sheet import CharacterSheet
-from pneuma_core.runtime.engine import RuntimeEngine
 from pneuma_core.llm.claude import ClaudeAdapter
+from pneuma_core.llm.embedding import OpenAIEmbeddingService
+from pneuma_core.models.message import MessageInput
+from pneuma_core.runtime.engine import RuntimeEngine
 from pneuma_core.storage.sqlite import SQLiteStorageBackend
 
-async def main():
-    character = CharacterSheet.load("aine.character.yaml")
+async def main() -> None:
+    sheet = CharacterSheet.load(Path("aine.character.yaml"))
+    character = sheet.character
+
+    # SQLiteStorageBackend 同时实现了 StorageBackend 与 MemoryStore 两个协议
+    storage = SQLiteStorageBackend("aine.db")
+    await storage.initialize()
+    await storage.save_character(character)
+    if sheet.initial_state is not None:
+        await storage.save_emotional_state(character.id, sheet.initial_state)
+
     engine = RuntimeEngine(
-        character=character.to_character(),
+        character_id=character.id,
+        storage=storage,
         llm=ClaudeAdapter(api_key="your-api-key"),
-        storage=SQLiteStorageBackend("aine.db"),
+        embedding_service=OpenAIEmbeddingService(api_key="your-openai-api-key"),
+        memory_store=storage,
     )
-    response = await engine.chat("最近読んだ本でおすすめある？")
-    print(response.content)
+
+    output = await engine.process_message(
+        MessageInput(
+            content="最近読んだ本でおすすめある？",
+            sender_id="user-1",
+            sender_name="ユーザー",
+            sender_type="human",
+        )
+    )
+    print(output.content)
+    print(output.emotion.emotion_label)
 
 asyncio.run(main())
 ```
 
-## Middleware
+> 更完整的示例（两个角色自动对话，并观察情感 / 记忆 / 关系随轮次的变化）见 `examples/cross_chat.py`。
 
-コアはシンプルに保ちつつ、ミドルウェアで拡張する。
+## 中间件
+
+保持核心简单，通过中间件进行扩展。
 
 ```python
 from pneuma_core.protocols.middleware import Middleware, PipelineContext
@@ -81,26 +119,30 @@ class LoggingMiddleware:
         print(f"Response: {output.content}")
 
 engine = RuntimeEngine(
-    character=character,
-    llm=llm,
+    character_id=character.id,
     storage=storage,
+    llm=llm,
+    embedding_service=embedding_service,
+    memory_store=storage,
     middlewares=[LoggingMiddleware()],
 )
 ```
 
-## Architecture
+## 架构
 
-Pneuma Coreは2つのフェーズで動作する:
+Pneuma Core 以两个阶段运行：
 
-**Per-turn (毎ターン)**: ユーザーのメッセージを受け取るたびに、感情推定、記憶検索、コンテキスト組み立て、LLM呼び出し、状態更新を実行する。ミドルウェアパイプラインにより、各ステップの前後にカスタム処理を挿入できる。
+**Per-turn（每轮）**：每当收到用户消息时，执行情感推断、记忆检索、上下文组装、LLM 调用、状态更新。借助中间件流水线，可以在各步骤前后插入自定义处理。
 
-**Per-session (セッション終了時)**: 会話終了時に、エピソード記憶の統合、セマンティック記憶の抽出、関係性の更新、日記の生成を行う。
+**Per-session（会话结束时）**：会话结束时，执行情节记忆的整合、语义记忆的抽取、关系性的更新、日记的生成。
 
 ```
-Layer 0 (models)   : データモデル + ストレージプロトコル
-Layer 1 (runtime)  : LLM連携 + 感情エンジン + 記憶検索 + ミドルウェア
+Layer 0 (models)   : 数据模型 + 存储协议
+Layer 1 (runtime)  : LLM 集成 + 情感引擎 + 记忆检索 + 中间件
 ```
 
-## License
+更详细的架构与设计思路见 [`docs/`](docs/README.md)。
+
+## 许可证
 
 MIT
