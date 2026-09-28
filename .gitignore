@@ -24,6 +24,9 @@ dist/
 .env.test.local
 .env.production.local
 
+# Pneuma runtime data (SQLite DB, character/user data)
+vault/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

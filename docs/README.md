@@ -6,6 +6,7 @@
 | --- | --- |
 | [architecture.md](./architecture.md) | 系统架构：分层、目录结构、数据模型、Per-turn / Per-session 运行阶段、各子系统职责 |
 | [design.md](./design.md) | 工程设计思路：设计原则、关键决策与权衡、扩展点、测试与质量策略 |
+| [service.md](./service.md) | 后端对话服务：环境变量清单、启动方式、HTTP API 说明与注意事项 |
 
 ## 项目一句话简介
 

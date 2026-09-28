@@ -20,17 +20,32 @@ class OpenAIEmbeddingService:
         self,
         api_key: str,
         model: str = DEFAULT_EMBEDDING_MODEL,
+        base_url: str | None = None,
     ) -> None:
         self.model = model
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+        self.base_url = base_url
+        self._client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     @classmethod
     def from_env(cls, model: str = DEFAULT_EMBEDDING_MODEL) -> OpenAIEmbeddingService:
-        """Create service from OPENAI_API_KEY environment variable."""
-        api_key = os.environ.get("OPENAI_API_KEY")
+        """Create service from environment variables.
+
+        Prefers ``PNEUMA_EMBEDDING_API_KEY`` / ``PNEUMA_EMBEDDING_BASE_URL``,
+        falling back to ``OPENAI_API_KEY`` / ``OPENAI_BASE_URL``. The base URL
+        is what allows using any OpenAI-compatible embedding endpoint.
+        """
+        api_key = os.environ.get("PNEUMA_EMBEDDING_API_KEY") or os.environ.get(
+            "OPENAI_API_KEY"
+        )
         if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is not set")
-        return cls(api_key=api_key, model=model)
+            raise ValueError(
+                "OPENAI_API_KEY (or PNEUMA_EMBEDDING_API_KEY) environment "
+                "variable is not set"
+            )
+        base_url = os.environ.get("PNEUMA_EMBEDDING_BASE_URL") or os.environ.get(
+            "OPENAI_BASE_URL"
+        )
+        return cls(api_key=api_key, model=model, base_url=base_url)
 
     async def embed(self, text: str) -> list[float]:
         """Embed a single text into a vector."""

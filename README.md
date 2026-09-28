@@ -16,7 +16,7 @@
 pip install pneuma-core
 ```
 
-包含 LLM 适配器:
+包含 LLM 适配器与后端服务：
 
 ```bash
 pip install pneuma-core[all]
@@ -142,6 +142,35 @@ Layer 1 (runtime)  : LLM 集成 + 情感引擎 + 记忆检索 + 中间件
 ```
 
 更详细的架构与设计思路见 [`docs/`](docs/README.md)。
+
+## 后端对话服务
+
+仓库自带一个 FastAPI 的单用户 HTTP 服务：**设定「我是谁」之后就可以正常对话**。
+
+```bash
+cp .env.example .env     # 填入你的 API 配置
+set -a && . ./.env && set +a
+uv pip install -e ".[server]"
+python -m pneuma_core.server
+```
+
+```bash
+BASE=http://localhost:8001
+# 1) 设定我是谁
+curl -X POST $BASE/api/session/start -H 'Content-Type: application/json' \
+  -d '{"user_id":"u1","user_name":"太郎"}'
+# 2) 正常对话
+curl -X POST $BASE/api/chat -H 'Content-Type: application/json' \
+  -d '{"message":"最近読んだ本でおすすめある？"}'
+# 3) 结束会话（触发记忆整合）
+curl -X POST $BASE/api/session/end
+```
+
+接口：`/healthz`、`/api/character`、`/api/session/start`、`/api/chat`、`/api/session/end`、`/api/state`。
+
+环境变量清单与完整说明见 [docs/service.md](docs/service.md)。
+
+> 说明：LLM 与 Embedding 均走 **OpenAI 兼容端点**（如阿里百炼 / DeepSeek / OpenRouter）。若 `PNEUMA_EMBEDDING_*` 未单独设置，会复用 `PNEUMA_LLM_*` 的 base_url 与 key。
 
 ## 许可证
 

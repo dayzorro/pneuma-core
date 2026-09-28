@@ -26,6 +26,7 @@ Layer 0 (models)   : 纯数据模型 + 存储/服务的抽象协议（Protocol�
 | --- | --- | --- |
 | **Layer 0 — models / protocols** | 定义共享的数据结构与抽象接口，不含业务编排 | `models/`、`protocols/`、`emotion/`、`memory/` 中的纯计算 |
 | **Layer 1 — runtime** | 编排一次对话的完整流水线，串联情感、记忆、提示词与 LLM | `runtime/`、`storage/`、`llm/` |
+| **Layer 2 — server**（可选） | 把引擎包装成 HTTP 服务，管理单用户会话生命周期 | `server/` |
 
 在这两层之下，还有一组**具体实现**（存储、LLM、Embedding），它们实现 Layer 0 定义的协议，可被自由替换。
 
@@ -69,8 +70,9 @@ src/pneuma_core/
 │   ├── consolidator.py    #   MemoryConsolidator（情节→长期）
 │   └── semantic_consolidator.py
 ├── llm/                   # 【实现】外部 LLM / Embedding 适配器
-│   ├── claude.py          #   ClaudeAdapter
-│   ├── embedding.py       #   OpenAIEmbeddingService
+│   ├── claude.py          #   ClaudeAdapter（Anthropic）
+│   ├── openai_compat.py   #   OpenAICompatAdapter（任意 OpenAI 兼容端点）
+│   ├── embedding.py       #   OpenAIEmbeddingService（支持 base_url）
 │   └── adapter.py         #   向后兼容 re-export
 ├── storage/               # 【实现】存储后端
 │   ├── backend.py         #   re-export
@@ -90,6 +92,11 @@ src/pneuma_core/
 │   ├── proactive.py       #   ProactiveEngine —— 先回头发话
 │   ├── diary_writer.py / diary_coaching.py / diary_processor.py
 │   └── user_context*.py   #   用户上下文的三级加载 / 检索 / 更新
+├── server/                # 【Layer 2】HTTP 对话服务（FastAPI，可选）
+│   ├── config.py          #   ServerConfig —— 环境变量 → 配置
+│   ├── service.py         #   ChatService —— 单用户会话与生命周期编排
+│   ├── app.py             #   FastAPI 路由与请求模型
+│   └── __main__.py        #   python -m pneuma_core.server
 ├── task/  voice/          # 领域包的向后兼容 re-export
 ```
 
@@ -205,7 +212,8 @@ DateTime / State(PAD) / SpeakingStyle / ResponseFormat
 ### 6.6 LLM 与 Embedding 适配器（`llm/`）
 
 - `ClaudeAdapter`：仅对 429 / 5xx 做指数退避重试；超时转换为 `LLMTimeoutError`；支持 `cache_control` 的静态提示词缓存块。
-- `OpenAIEmbeddingService`：`embed_batch` 会过滤空字符串并以零向量占位，保持索引对齐。
+- `OpenAICompatAdapter`：面向任意 OpenAI 兼容端点（`/v1/chat/completions`），通过 `base_url` 指向不同供应商；同样具备 429/5xx 重试与超时转换，并会把框架内部硬编码的 `claude-*` 模型名回退到配置的默认模型。
+- `OpenAIEmbeddingService`：`embed_batch` 会过滤空字符串并以零向量占位，保持索引对齐；支持 `base_url`，可对接任意 OpenAI 兼容向量端点。
 
 ## 7. 扩展点
 

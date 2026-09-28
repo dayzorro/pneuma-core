@@ -168,8 +168,8 @@ SessionEndPipeline.run（1 次 LLM 调用）→ 情节记忆 / 语义记忆 / �
 
 | 想做什么 | 扩展方式 |
 | --- | --- |
-| 换 LLM 厂商 | 实现 `LLMAdapter.generate`，无需改 runtime |
-| 换 Embedding | 实现 `EmbeddingService.embed / embed_batch` |
+| 换 LLM 厂商 | 实现 `LLMAdapter.generate`；OpenAI 兼容端点可直接用内置的 `OpenAICompatAdapter`（只改 `base_url`/`model`） |
+| 换 Embedding | 实现 `EmbeddingService.embed / embed_batch`；`OpenAIEmbeddingService` 已支持 `base_url` |
 | 换持久化 | 实现 `StorageBackend`（及可选 `MemoryStore`） |
 | 加日志/观测/A-B | 写 `Middleware`，挂到 `middlewares=[...]` |
 | 调情感/记忆行为 | 调整 `EmotionConfig` / `SearchConfig` 参数 |
@@ -180,7 +180,7 @@ SessionEndPipeline.run（1 次 LLM 调用）→ 情节记忆 / 语义记忆 / �
 
 ## 5. 测试与质量策略
 
-- **测试驱动**：项目遵循 TDD（Red–Green–Refactor），`tests/` 覆盖各子系统，当前全量 **1044 项测试通过**。
+- **测试驱动**：项目遵循 TDD（Red–Green–Refactor），`tests/` 覆盖各子系统，当前全量 **1066 项测试通过**。
 - **不变式即规格**：`.vibe/spec/stories/*.yaml` 以 `invariants` 形式记录每条设计不变式，并关联到 `test` 与 `source_ref`。例如：
   - `pipeline-order`：每轮固定处理顺序
   - `personality-determines-pad-baseline`：PAD 基线由 Big Five 线性决定并 clamp
@@ -196,6 +196,10 @@ SessionEndPipeline.run（1 次 LLM 调用）→ 情节记忆 / 语义记忆 / �
 uv venv .venv && uv pip install --python .venv -e ".[dev]"
 # 运行测试
 .venv/bin/python -m pytest -q
+# 启动后端对话服务（环境变量见 docs/service.md）
+cp .env.example .env   # 填入 API 配置
+set -a && . ./.env && set +a
+.venv/bin/python -m pneuma_core.server
 # 运行示例（需要 API Key）
 export ANTHROPIC_API_KEY=...   # 回复生成（Claude）
 export OPENAI_API_KEY=...      # 嵌入（text-embedding-3-small）
