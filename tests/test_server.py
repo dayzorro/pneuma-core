@@ -124,13 +124,13 @@ class TestServiceEndpoints:
     async def test_healthz(self, client: httpx.AsyncClient) -> None:
         resp = await client.get("/healthz")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok", "character": "アイネ"}
+        assert resp.json() == {"status": "ok", "character": "夏澜"}
 
     async def test_character(self, client: httpx.AsyncClient) -> None:
         resp = await client.get("/api/character")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["name"] == "アイネ"
+        assert body["name"] == "夏澜"
         assert set(body["personality"]) == {
             "openness",
             "conscientiousness",
@@ -160,7 +160,7 @@ class TestServiceEndpoints:
         assert start.status_code == 200
         start_body = start.json()
         assert start_body["user"]["name"] == "太郎"
-        assert start_body["character"]["name"] == "アイネ"
+        assert start_body["character"]["name"] == "夏澜"
         assert start_body["session_id"]
 
         # 2. Chat normally

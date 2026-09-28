@@ -98,7 +98,7 @@ BASE=http://localhost:8001
 curl -X POST $BASE/api/session/start \
   -H 'Content-Type: application/json' \
   -d '{"user_id":"u1","user_name":"太郎"}'
-# → {"session_id":"sess-...","user":{...},"character":{"name":"アイネ",...}}
+# → {"session_id":"sess-...","user":{...},"character":{"name":"夏澜",...}}
 
 # 2) 正常对话
 curl -X POST $BASE/api/chat \
