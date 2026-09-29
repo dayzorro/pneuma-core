@@ -12,7 +12,7 @@ _TASK_STATUSES = ("pending", "in_progress", "completed", "abandoned")
 
 @dataclass(frozen=True)
 class Vision:
-    """長期ビジョン（5-10年）."""
+    """长期愿景（5-10 年）。"""
 
     id: str
     character_id: str
@@ -45,7 +45,7 @@ class Objective:
 
 @dataclass(frozen=True)
 class Task:
-    """具体的タスク（日〜週単位）.
+    """具体任务（以日〜周为单位）。
 
     status: pending / in_progress / completed / abandoned
     """
@@ -65,9 +65,9 @@ class Task:
 
 @dataclass
 class GoalTree:
-    """3階層の目標構造.
+    """三层目标结构。
 
-    Vision → Objective → Task の階層参照を提供する。
+    提供 Vision → Objective → Task 的层级引用。
     """
 
     visions: list[Vision] = field(default_factory=list)
@@ -75,9 +75,9 @@ class GoalTree:
     tasks: list[Task] = field(default_factory=list)
 
     def get_objectives_for_vision(self, vision_id: str) -> list[Objective]:
-        """Vision に紐づく Objectives を取得."""
+        """获取与 Vision 关联的 Objectives。"""
         return [o for o in self.objectives if o.vision_id == vision_id]
 
     def get_tasks_for_objective(self, objective_id: str) -> list[Task]:
-        """Objective に紐づく Tasks を取得."""
+        """获取与 Objective 关联的 Tasks。"""
         return [t for t in self.tasks if t.objective_id == objective_id]

@@ -40,32 +40,32 @@ class TestShouldTrigger:
     def test_nikki_kaita_triggers(self, tmp_path: Path) -> None:
         """「日記書いた」でトリガーされる."""
         coaching = _make_coaching(tmp_path / "diary")
-        assert coaching.should_trigger("日記書いた") is True
+        assert coaching.should_trigger("写了日记") is True
 
     def test_nikki_yonde_triggers(self, tmp_path: Path) -> None:
         """「日記読んで」でトリガーされる."""
         coaching = _make_coaching(tmp_path / "diary")
-        assert coaching.should_trigger("日記読んで") is True
+        assert coaching.should_trigger("看下日记") is True
 
     def test_nikki_mite_triggers(self, tmp_path: Path) -> None:
         """「日記見て」でトリガーされる."""
         coaching = _make_coaching(tmp_path / "diary")
-        assert coaching.should_trigger("日記見て") is True
+        assert coaching.should_trigger("看看日记") is True
 
     def test_nikki_kaitayo_triggers(self, tmp_path: Path) -> None:
         """「日記書いたよ」でトリガーされる."""
         coaching = _make_coaching(tmp_path / "diary")
-        assert coaching.should_trigger("日記書いたよ") is True
+        assert coaching.should_trigger("日记写好了") is True
 
     def test_keyword_in_sentence_triggers(self, tmp_path: Path) -> None:
         """文中にキーワードが含まれていてもトリガーされる."""
         coaching = _make_coaching(tmp_path / "diary")
-        assert coaching.should_trigger("今日も日記書いたよ！") is True
+        assert coaching.should_trigger("今天也写了日记！") is True
 
     def test_no_keyword_does_not_trigger(self, tmp_path: Path) -> None:
         """キーワードがなければトリガーされない."""
         coaching = _make_coaching(tmp_path / "diary")
-        assert coaching.should_trigger("こんにちは") is False
+        assert coaching.should_trigger("你好") is False
 
     def test_empty_input_does_not_trigger(self, tmp_path: Path) -> None:
         """空文字列はトリガーされない."""
@@ -76,7 +76,7 @@ class TestShouldTrigger:
         """キーワードの一部だけではトリガーされない."""
         coaching = _make_coaching(tmp_path / "diary")
         # 「日記」だけではトリガーされない（「日記書いた」等が必要）
-        assert coaching.should_trigger("日記") is False
+        assert coaching.should_trigger("日记") is False
 
 
 # === get_diary_content テスト ===
@@ -177,12 +177,12 @@ class TestBuildCoachingContext:
         _write_diary(diary_dir, today, "今日は新しいことに挑戦した。")
 
         coaching = _make_coaching(diary_dir)
-        context = coaching.build_coaching_context("日記書いたよ")
+        context = coaching.build_coaching_context("写了日记")
 
         assert context is not None
         assert "今日は新しいことに挑戦した。" in context
-        assert "[ユーザーの日記]" in context
-        assert "[コーチングガイド]" in context
+        assert "[用户的日记]" in context
+        assert "[教练指南]" in context
 
     def test_returns_none_when_not_triggered(self, tmp_path: Path) -> None:
         """トリガーなしで None を返す."""
@@ -191,7 +191,7 @@ class TestBuildCoachingContext:
         _write_diary(diary_dir, today, "今日の日記。")
 
         coaching = _make_coaching(diary_dir)
-        context = coaching.build_coaching_context("こんにちは")
+        context = coaching.build_coaching_context("你好")
         assert context is None
 
     def test_returns_none_when_no_diary(self, tmp_path: Path) -> None:
@@ -206,7 +206,7 @@ class TestBuildCoachingContext:
             mock_dt.side_effect = lambda *args, **kwargs: datetime(
                 *args, **kwargs
             )
-            context = coaching.build_coaching_context("日記読んで")
+            context = coaching.build_coaching_context("看下日记")
 
         assert context is None
 
@@ -219,13 +219,13 @@ class TestBuildCoachingContext:
         _write_diary(diary_dir, today, "テスト日記")
 
         coaching = _make_coaching(diary_dir)
-        context = coaching.build_coaching_context("日記見て")
+        context = coaching.build_coaching_context("看看日记")
 
         assert context is not None
-        assert "問いかけ" in context
-        assert "視点の提示" in context
-        assert "押し付けがましくならない" in context
-        assert "キャラクターの口調を維持" in context
+        assert "提问" in context
+        assert "新的视角" in context
+        assert "压迫感" in context
+        assert "保持角色的口吻" in context
 
 
 # === RuntimeEngine 組み込みテスト ===

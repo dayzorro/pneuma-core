@@ -13,13 +13,13 @@ def _validate_pad(value: float, name: str) -> float:
 
 @dataclass(frozen=True)
 class EmotionalState:
-    """PAD 3次元感情状態.
+    """PAD 三维情绪状态。
 
-    pleasure: -1.0〜1.0（不快〜快）
-    arousal: -1.0〜1.0（沈静〜興奮）
-    dominance: -1.0〜1.0（服従〜支配）
-    emotion_label: 離散ラベル（表示用）
-    situation: 現在の状況（1文）
+    pleasure: -1.0〜1.0（不快〜愉悦）
+    arousal: -1.0〜1.0（平静〜兴奋）
+    dominance: -1.0〜1.0（顺从〜支配）
+    emotion_label: 离散标签（用于展示）
+    situation: 当前状况（一句话）
     """
 
     pleasure: float
@@ -36,9 +36,9 @@ class EmotionalState:
 
 @dataclass(frozen=True)
 class Mood:
-    """中期感情（ムード）: 感情の移動平均.
+    """中期情绪（心情）：情绪的移动平均。
 
-    PAD と同じ -1.0〜1.0 の範囲。
+    与 PAD 相同的 -1.0〜1.0 范围。
     """
 
     pleasure: float
@@ -51,7 +51,7 @@ class Mood:
         _validate_pad(self.dominance, "dominance")
 
     def update(self, state: EmotionalState, alpha: float = 0.3) -> Mood:
-        """感情を反映した新しい Mood を返す（指数移動平均）.
+        """返回反映该情绪后的新 Mood（指数移动平均）。
 
         new_value = (1 - alpha) * current + alpha * emotion
         """

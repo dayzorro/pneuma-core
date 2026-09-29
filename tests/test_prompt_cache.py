@@ -157,7 +157,7 @@ class TestStaticSection:
             goal_tree=GoalTree(),
             memories=[],
         )
-        assert "開放性" in cached.static_section
+        assert "开放性" in cached.static_section
 
     def test_static_includes_values(self) -> None:
         """静的セクションに価値観が含まれる."""
@@ -168,7 +168,7 @@ class TestStaticSection:
             goal_tree=GoalTree(),
             memories=[],
         )
-        assert "自己超越" in cached.static_section
+        assert "自我超越" in cached.static_section
 
     def test_static_includes_speaking_style(self) -> None:
         """静的セクションに口調が含まれる."""
@@ -341,8 +341,8 @@ class TestIntegration:
 
         # full_prompt should contain all the same content
         assert "アイネ" in cached.full_prompt
-        assert "開放性" in cached.full_prompt
-        assert "自己超越" in cached.full_prompt
+        assert "开放性" in cached.full_prompt
+        assert "自我超越" in cached.full_prompt
         assert "テスト" in cached.full_prompt
         assert "事実" in cached.full_prompt
         assert "喜び" in cached.full_prompt

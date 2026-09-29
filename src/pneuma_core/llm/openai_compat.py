@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _is_retryable(error: APIStatusError) -> bool:
-    """429 (Rate Limit) と 5xx (Server Error) のみリトライ対象."""
+    """仅对 429 (Rate Limit) 与 5xx (Server Error) 进行重试。"""
     return error.status_code == 429 or error.status_code >= 500
 
 

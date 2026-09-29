@@ -9,7 +9,7 @@ from pneuma_core.task.models import Task, TaskCreate, TaskUpdate
 
 @runtime_checkable
 class TaskBackend(Protocol):
-    """タスク管理バックエンドの抽象インターフェース."""
+    """任务管理后端的抽象接口。"""
 
     async def list_tasks(
         self,

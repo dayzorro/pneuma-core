@@ -99,27 +99,27 @@ class TestPadToEmotionLabel:
 
     def test_joy_elevated(self) -> None:
         """P+ A+ D+ → 喜び（高揚）"""
-        assert pad_to_emotion_label(0.5, 0.5, 0.5) == "喜び（高揚）"
+        assert pad_to_emotion_label(0.5, 0.5, 0.5) == "喜悦（高涨）"
 
     def test_moved(self) -> None:
         """P+ A+ D- → 感動"""
-        assert pad_to_emotion_label(0.5, 0.5, -0.5) == "感動"
+        assert pad_to_emotion_label(0.5, 0.5, -0.5) == "感动"
 
     def test_composure(self) -> None:
         """P+ A- D+ → 余裕"""
-        assert pad_to_emotion_label(0.5, -0.5, 0.5) == "余裕"
+        assert pad_to_emotion_label(0.5, -0.5, 0.5) == "从容"
 
     def test_serenity(self) -> None:
         """P+ A- D- → 安らぎ"""
-        assert pad_to_emotion_label(0.5, -0.5, -0.5) == "安らぎ"
+        assert pad_to_emotion_label(0.5, -0.5, -0.5) == "安详"
 
     def test_anger(self) -> None:
         """P- A+ D+ → 怒り"""
-        assert pad_to_emotion_label(-0.5, 0.5, 0.5) == "怒り"
+        assert pad_to_emotion_label(-0.5, 0.5, 0.5) == "愤怒"
 
     def test_fear(self) -> None:
         """P- A+ D- → 恐怖"""
-        assert pad_to_emotion_label(-0.5, 0.5, -0.5) == "恐怖"
+        assert pad_to_emotion_label(-0.5, 0.5, -0.5) == "恐惧"
 
     def test_ennui(self) -> None:
         """P- A- D+ → 倦怠"""
@@ -127,7 +127,7 @@ class TestPadToEmotionLabel:
 
     def test_despair(self) -> None:
         """P- A- D- → 絶望"""
-        assert pad_to_emotion_label(-0.5, -0.5, -0.5) == "絶望"
+        assert pad_to_emotion_label(-0.5, -0.5, -0.5) == "绝望"
 
     def test_neutral(self) -> None:
         """中間値 → 中立"""
@@ -142,7 +142,7 @@ class TestPadToEmotionLabel:
         # デフォルトしきい値は Issue の 0.3 想定
         # P=0.3 は P>0 の象限
         label = pad_to_emotion_label(0.3, 0.3, 0.3)
-        assert label == "喜び（高揚）"
+        assert label == "喜悦（高涨）"
 
     def test_mixed_threshold(self) -> None:
         """一部の軸だけ中間の場合."""
@@ -150,7 +150,7 @@ class TestPadToEmotionLabel:
         # 最も近い象限にフォールバック
         # P+ で A,D が中間(正扱い) → P+ A+ D+ = 喜び（高揚）
         label = pad_to_emotion_label(0.8, 0.0, 0.0)
-        assert label == "喜び（高揚）"
+        assert label == "喜悦（高涨）"
 
 
 # --- Big Five → PAD Baseline tests ---

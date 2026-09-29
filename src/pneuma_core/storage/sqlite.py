@@ -129,14 +129,14 @@ CREATE TABLE IF NOT EXISTS relations (
 
 
 class SQLiteStorageBackend:
-    """SQLite ストレージバックエンド."""
+    """SQLite 存储后端。"""
 
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._db: aiosqlite.Connection | None = None
 
     async def initialize(self) -> None:
-        """DB 接続を開いてスキーマを作成."""
+        """打开 DB 连接并创建表结构。"""
         self._db = await aiosqlite.connect(self._db_path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(_SCHEMA)
@@ -144,7 +144,7 @@ class SQLiteStorageBackend:
         await self._migrate()
 
     async def _migrate(self) -> None:
-        """既存テーブルに不足カラムを追加するマイグレーション."""
+        """为已有表补充缺失字段的迁移处理。"""
         migrations = [
             ("todos", "owner_id", "ALTER TABLE todos ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'user'"),
         ]
@@ -159,7 +159,7 @@ class SQLiteStorageBackend:
                 pass
 
     async def close(self) -> None:
-        """DB 接続を閉じる."""
+        """关闭 DB 连接。"""
         if self._db:
             await self._db.close()
 
@@ -170,7 +170,7 @@ class SQLiteStorageBackend:
         return self._db
 
     async def list_tables(self) -> set[str]:
-        """テーブル一覧を返す（テスト用）."""
+        """返回表名列表（供测试用）。"""
         cursor = await self._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         )
@@ -313,7 +313,7 @@ class SQLiteStorageBackend:
         return result
 
     async def update_semantic_memory(self, memory: SemanticMemory) -> None:
-        """セマンティック記憶を ID で上書き更新."""
+        """按 ID 覆盖更新语义记忆。"""
         embedding_json = json.dumps(memory.embedding) if memory.embedding else None
         await self._conn.execute(
             """UPDATE semantic_memories
@@ -336,7 +336,7 @@ class SQLiteStorageBackend:
         await self._conn.commit()
 
     async def delete_semantic_memory(self, memory_id: str) -> None:
-        """セマンティック記憶を ID で削除."""
+        """按 ID 删除语义记忆。"""
         await self._conn.execute(
             "DELETE FROM semantic_memory_sources WHERE semantic_memory_id = ?",
             (memory_id,),
@@ -613,7 +613,7 @@ class SQLiteStorageBackend:
         if row["completed_at"]:
             completed_at = datetime.fromisoformat(row["completed_at"])
 
-        # owner_id カラムが存在しない古い DB への後方互換
+        # 对不存在 owner_id 字段的旧 DB 做向后兼容
         try:
             owner_id = row["owner_id"]
         except (IndexError, KeyError):

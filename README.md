@@ -87,9 +87,9 @@ async def main() -> None:
 
     output = await engine.process_message(
         MessageInput(
-            content="最近読んだ本でおすすめある？",
+            content="最近读的书里有什么推荐吗？",
             sender_id="user-1",
-            sender_name="ユーザー",
+            sender_name="用户",
             sender_type="human",
         )
     )
@@ -158,10 +158,10 @@ python -m pneuma_core.server
 BASE=http://localhost:8001
 # 1) 设定我是谁
 curl -X POST $BASE/api/session/start -H 'Content-Type: application/json' \
-  -d '{"user_id":"u1","user_name":"太郎"}'
+  -d '{"user_id":"u1","user_name":"小明"}'
 # 2) 正常对话
 curl -X POST $BASE/api/chat -H 'Content-Type: application/json' \
-  -d '{"message":"最近読んだ本でおすすめある？"}'
+  -d '{"message":"最近读的书里有什么推荐吗？"}'
 # 3) 结束会话（触发记忆整合）
 curl -X POST $BASE/api/session/end
 ```

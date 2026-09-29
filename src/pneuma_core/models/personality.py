@@ -16,10 +16,10 @@ def _validate_range(value: float, name: str) -> float:
 
 @dataclass(frozen=True)
 class Personality:
-    """Big Five 性格モデル.
+    """Big Five 性格模型。
 
-    各パラメータは 0.0〜1.0 の範囲。
-    しきい値: 0.3 未満=低い、0.7 以上=高い
+    各参数范围均为 0.0〜1.0。
+    阈值：低于 0.3=低，0.7 及以上=高
     """
 
     openness: float
@@ -33,9 +33,9 @@ class Personality:
             _validate_range(getattr(self, trait), trait)
 
     def is_high(self, trait: str) -> bool:
-        """指定した特性が高い（0.7 以上）かを判定."""
+        """判断指定特质是否为高（0.7 及以上）。"""
         return getattr(self, trait) >= _HIGH_THRESHOLD
 
     def is_low(self, trait: str) -> bool:
-        """指定した特性が低い（0.3 未満）かを判定."""
+        """判断指定特质是否为低（低于 0.3）。"""
         return getattr(self, trait) < _LOW_THRESHOLD

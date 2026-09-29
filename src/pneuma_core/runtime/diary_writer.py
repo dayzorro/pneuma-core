@@ -1,4 +1,4 @@
-"""DiaryWriter: キャラクターの日記を自動生成する."""
+"""DiaryWriter：自动生成角色的日记。"""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from pneuma_core.llm.adapter import LLMAdapter, LLMRequest
 
 logger = logging.getLogger(__name__)
 
-# JST (Asia/Tokyo, UTC+9)
+# JST（日本标准时间，UTC+9）
 JST = timezone(timedelta(hours=9))
 
 
 class DiaryWriter:
-    """キャラクターの日記を自動生成する."""
+    """自动生成角色的日记。"""
 
-    TRIGGER_KEYWORDS = ["おやすみ", "おはよう", "おやすみなさい", "おはようございます"]
+    TRIGGER_KEYWORDS = ["晚安", "早安", "早上好", "我睡了"]
 
     def __init__(
         self,
@@ -34,55 +34,56 @@ class DiaryWriter:
         self._character_name = character_name
         self._character_profile = character_profile
         self._model = model
-        self._generated_dates: set[str] = set()  # 1日1回制限
+        self._generated_dates: set[str] = set()  # 每天最多一次
 
     def _get_effective_date(self) -> str:
-        """実効日付を返す。0:00-3:59 JST は前日として扱う."""
+        """返回生效日期。JST 0:00-3:59 视为前一天。"""
         now = datetime.now(JST)
         if now.hour < 4:
             now = now - timedelta(days=1)
         return now.strftime("%Y-%m-%d")
 
     def should_trigger(self, user_input: str) -> bool:
-        """ユーザー発言にトリガーキーワードが含まれるか判定."""
+        """判断用户发言中是否包含触发关键词。"""
         return any(kw in user_input for kw in self.TRIGGER_KEYWORDS)
 
     async def maybe_generate(self, user_input: str) -> None:
-        """トリガー条件を満たせば日記を生成する."""
+        """满足触发条件时生成日记。"""
         if not self.should_trigger(user_input):
             return
         today = self._get_effective_date()
         if today in self._generated_dates:
-            return  # 1日1回制限
+            return  # 每天最多一次
         await self._generate_diary(today)
         self._generated_dates.add(today)
 
     async def _generate_diary(self, date_str: str) -> None:
-        """日記を生成して diary_dir/YYYY-MM-DD.md に保存."""
-        # 1. その日の会話ログを読む
+        """生成日记并保存到 diary_dir/YYYY-MM-DD.md。"""
+        # 1. 读取当天的对话日志
         log_path = self._logs_dir / f"{date_str}.md"
         log_content = ""
         if log_path.exists():
             log_content = log_path.read_text(encoding="utf-8")
 
-        # 2. LLM に日記を書かせる
+        # 2. 让 LLM 写日记
         system_prompt = (
-            f"あなたは「{self._character_name}」です。"
-            f"以下のキャラクター設定に基づいて、今日の日記を書いてください。\n\n"
+            f"你是「{self._character_name}」。"
+            f"请基于以下角色设定，写下今天的日记。\n\n"
             f"{self._character_profile}\n\n"
-            f"## 日記の書き方\n"
-            f"- 一人称で書く（キャラクターとして）\n"
-            f"- その日あったこと、感じたこと、考えていることを自由に書く\n"
-            f"- キャラクターの口調・性格を反映する\n"
-            f"- 自然な日記として読めるように（箇条書きではなく文章で）\n"
-            f"- 長さは200〜400字程度\n"
-            f"- マークダウンのヘッダーや装飾は不要。本文のみ"
+            f"## 日记的写法\n"
+            f"- 以第一人称书写（作为角色本人）\n"
+            f"- 自由地写下今天发生的事、感受和想法\n"
+            f"- 体现角色的口吻与性格\n"
+            f"- 要读起来像一篇自然的日记（用成段的文字，而不是要点列表）\n"
+            f"- 长度约 200〜400 字\n"
+            f"- 不要 markdown 标题或装饰，只写正文\n"
+            f"- 使用简体中文书写"
         )
 
         user_message = (
-            f"今日は{date_str}です。今日の会話ログを元に日記を書いてください。\n\n"
-            f"## 今日の会話ログ\n"
-            f"{log_content if log_content else '（今日は会話がありませんでした）'}"
+            f"今天是 {date_str}。请根据今天的对话日志写一篇日记。\n\n"
+            f"## 今天的对话日志\n"
+            f"{log_content if log_content else '（今天没有对话）'}"
         )
 
         response = await self._llm.generate(
@@ -93,7 +94,7 @@ class DiaryWriter:
             )
         )
 
-        # 3. ファイルに保存
+        # 3. 保存到文件
         self._diary_dir.mkdir(parents=True, exist_ok=True)
         diary_path = self._diary_dir / f"{date_str}.md"
         diary_path.write_text(response.content, encoding="utf-8")

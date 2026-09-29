@@ -15,11 +15,11 @@ def _validate_range(value: float, name: str) -> float:
 
 @dataclass(frozen=True)
 class Values:
-    """Schwartz 4 カテゴリ価値観モデル.
+    """Schwartz 4 类价值观模型。
 
-    各パラメータは 0.0〜1.0 の範囲。
-    対立軸: self_transcendence ↔ self_enhancement, openness_to_change ↔ conservation
-    しきい値: 0.6 以上で「重視する」
+    各参数范围均为 0.0〜1.0。
+    对立轴: self_transcendence ↔ self_enhancement, openness_to_change ↔ conservation
+    阈值：0.6 及以上视为「重视」
     """
 
     self_transcendence: float
@@ -32,5 +32,5 @@ class Values:
             _validate_range(getattr(self, dim), dim)
 
     def is_important(self, dimension: str) -> bool:
-        """指定した価値観が重視されている（0.6 以上）かを判定."""
+        """判断指定价值观是否被重视（0.6 及以上）。"""
         return getattr(self, dimension) >= _IMPORTANCE_THRESHOLD

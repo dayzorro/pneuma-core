@@ -251,7 +251,7 @@ class TestStage1Always:
             memories=[],
         )
         assert "values" in result.always
-        assert "価値観" in result.always["values"]
+        assert "价值观" in result.always["values"]
 
     def test_speaking_style_in_always(self) -> None:
         assembler = ContextAssembler()
@@ -273,7 +273,7 @@ class TestStage1Always:
             memories=[],
         )
         assert "response_format" in result.always
-        assert "応答フォーマット" in result.always["response_format"]
+        assert "回复格式" in result.always["response_format"]
 
     def test_emotion_in_always(self) -> None:
         assembler = ContextAssembler()
@@ -284,7 +284,7 @@ class TestStage1Always:
             memories=[],
         )
         assert "emotion" in result.always
-        assert "感情状態" in result.always["emotion"]
+        assert "情绪状态" in result.always["emotion"]
 
     def test_speaking_style_omitted_when_none(self) -> None:
         """When character has no speaking_style, key should not be in always."""
@@ -316,7 +316,7 @@ class TestStage2Relevant:
             memories=memories,
         )
         assert "memory" in result.relevant
-        assert "記憶" in result.relevant["memory"]
+        assert "记忆" in result.relevant["memory"]
 
     def test_goals_in_relevant(self) -> None:
         assembler = ContextAssembler()
@@ -327,7 +327,7 @@ class TestStage2Relevant:
             memories=[],
         )
         assert "goals" in result.relevant
-        assert "目標" in result.relevant["goals"]
+        assert "目标" in result.relevant["goals"]
 
     def test_relations_in_relevant(self) -> None:
         assembler = ContextAssembler()
@@ -340,7 +340,7 @@ class TestStage2Relevant:
             relations=relations,
         )
         assert "relations" in result.relevant
-        assert "関係性" in result.relevant["relations"]
+        assert "关系" in result.relevant["relations"]
 
     def test_user_context_search_in_relevant(self) -> None:
         assembler = ContextAssembler()

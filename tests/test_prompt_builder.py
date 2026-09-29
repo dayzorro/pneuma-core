@@ -179,13 +179,13 @@ class TestPersonalitySection:
         builder = PromptBuilder()
         character = _make_character(personality=_make_personality(openness=0.9))
         prompt = builder.build(character, _make_emotional_state(), GoalTree(), [])
-        assert "開放性" in prompt
+        assert "开放性" in prompt
 
     def test_low_neuroticism_described(self) -> None:
         builder = PromptBuilder()
         character = _make_character(personality=_make_personality(neuroticism=0.2))
         prompt = builder.build(character, _make_emotional_state(), GoalTree(), [])
-        assert "神経症傾向" in prompt
+        assert "神经质" in prompt
 
     def test_personality_description_included(self) -> None:
         builder = PromptBuilder()
@@ -211,7 +211,7 @@ class TestValuesSection:
         builder = PromptBuilder()
         character = _make_character(values=_make_values(self_transcendence=0.9))
         prompt = builder.build(character, _make_emotional_state(), GoalTree(), [])
-        assert "自己超越" in prompt
+        assert "自我超越" in prompt
 
     def test_values_description_included(self) -> None:
         builder = PromptBuilder()
@@ -355,9 +355,9 @@ class TestIntegration:
         # 基本情報
         assert "アイネ" in prompt
         # 性格
-        assert "開放性" in prompt
+        assert "开放性" in prompt
         # 価値観
-        assert "自己超越" in prompt
+        assert "自我超越" in prompt
         # 記憶
         assert "楽しい思い出" in prompt
         assert "重要な事実" in prompt
@@ -380,7 +380,7 @@ class TestIntegration:
 
         # プロフィール → 性格 → 価値観 → 記憶 → 目標 → 感情 → 口調の順
         profile_pos = prompt.find("アイネ")
-        personality_pos = prompt.find("開放性")
+        personality_pos = prompt.find("开放性")
         memory_pos = prompt.find("テスト記憶")
         goal_pos = prompt.find("人間の感情を深く理解する")
         state_pos = prompt.find("喜び")
@@ -455,13 +455,13 @@ class TestBuildStaticSections:
         """静的セクションに性格が含まれる."""
         builder = PromptBuilder()
         result = builder.build_static_sections(_make_character())
-        assert "開放性" in result
+        assert "开放性" in result
 
     def test_includes_values(self) -> None:
         """静的セクションに価値観が含まれる."""
         builder = PromptBuilder()
         result = builder.build_static_sections(_make_character())
-        assert "自己超越" in result
+        assert "自我超越" in result
 
     def test_includes_speaking_style(self) -> None:
         """静的セクションに口調が含まれる."""
@@ -553,7 +553,7 @@ class TestResponseFormatSection:
         builder = PromptBuilder()
         result = builder._build_response_format_section()
         assert len(result) > 0
-        assert "応答フォーマット" in result
+        assert "回复格式" in result
 
     def test_response_format_contains_json_instruction(self) -> None:
         """応答フォーマットセクションに JSON 形式指示が含まれる."""
@@ -574,13 +574,13 @@ class TestResponseFormatSection:
             [],
         )
         # 応答フォーマットは最後のセクション
-        assert prompt.rstrip().endswith("JSON 以外のテキストを出力しないこと")
+        assert prompt.rstrip().endswith("不要输出 JSON 以外的任何文本")
 
     def test_response_format_in_build_static_sections(self) -> None:
         """応答フォーマットセクションが build_static_sections() に含まれる."""
         builder = PromptBuilder()
         result = builder.build_static_sections(_make_character())
-        assert "応答フォーマット" in result
+        assert "回复格式" in result
         assert "speech" in result
 
     def test_response_format_not_in_build_dynamic_sections(self) -> None:
@@ -603,7 +603,7 @@ class TestResponseFormatSection:
             [],
         )
         style_pos = prompt.find("丁寧語を使う")
-        format_pos = prompt.find("応答フォーマット")
+        format_pos = prompt.find("回复格式")
         assert style_pos < format_pos
 
 
@@ -656,7 +656,7 @@ class TestNaturalLanguageConversion:
         builder = PromptBuilder()
         state = _make_emotional_state(pleasure=0.8, arousal=0.0, dominance=0.0)
         section = builder._build_state_section(state)
-        assert "とても" in section or "強い" in section
+        assert "非常" in section or "强烈" in section
         assert not re.search(r'[+-]\d+\.\d+', section)
 
     def test_pad_slight_positive_pleasure(self) -> None:
@@ -664,7 +664,7 @@ class TestNaturalLanguageConversion:
         builder = PromptBuilder()
         state = _make_emotional_state(pleasure=0.2, arousal=0.0, dominance=0.0)
         section = builder._build_state_section(state)
-        assert "わずかに" in section or "少し" in section
+        assert "略微" in section or "稍" in section
         assert not re.search(r'[+-]\d+\.\d+', section)
 
     def test_pad_strong_negative_pleasure(self) -> None:
@@ -672,7 +672,7 @@ class TestNaturalLanguageConversion:
         builder = PromptBuilder()
         state = _make_emotional_state(pleasure=-0.8, arousal=0.0, dominance=0.0)
         section = builder._build_state_section(state)
-        assert "とても" in section or "強い" in section
+        assert "非常" in section or "强烈" in section
         assert not re.search(r'[+-]\d+\.\d+', section)
 
     def test_pad_neutral_values(self) -> None:
@@ -719,9 +719,9 @@ class TestNaturalLanguageConversion:
             personality=_make_personality(openness=0.9)
         )
         section = builder._build_personality_section(character)
-        assert "開放性" in section
+        assert "开放性" in section
         # 説明文がある
-        assert "新しい" in section or "オープン" in section
+        assert "对新经验" in section or "开放" in section
         # 数値がない
         assert "(0.9)" not in section
         assert "0.9" not in section
@@ -733,9 +733,9 @@ class TestNaturalLanguageConversion:
             personality=_make_personality(neuroticism=0.2)
         )
         section = builder._build_personality_section(character)
-        assert "神経症傾向" in section
+        assert "神经质" in section
         # 説明文がある
-        assert "安定" in section or "冷静" in section
+        assert "稳定" in section or "冷静" in section
         # 数値がない
         assert "(0.2)" not in section
         assert "0.2" not in section
@@ -754,7 +754,7 @@ class TestNaturalLanguageConversion:
         )
         section = builder._build_personality_section(character)
         # 各特性に説明文がある（数値だけの行がない）
-        for trait_label in ["開放性", "誠実性", "外向性", "協調性", "神経症傾向"]:
+        for trait_label in ["开放性", "尽责性", "外向性", "宜人性", "神经质"]:
             line = [l for l in section.split("\n") if trait_label in l]
             assert len(line) == 1
             # その行に数値が含まれない
@@ -794,8 +794,8 @@ class TestNaturalLanguageConversion:
             values=_make_values(self_transcendence=0.9)
         )
         section = builder._build_values_section(character)
-        assert "自己超越" in section
-        assert "他者" in section or "幸福" in section or "善" in section
+        assert "自我超越" in section
+        assert "他人" in section or "幸福" in section or "善" in section
         assert "(0.9)" not in section
 
     def test_values_unimportant_also_has_description(self) -> None:
@@ -806,7 +806,7 @@ class TestNaturalLanguageConversion:
         )
         section = builder._build_values_section(character)
         # self_enhancement の行に説明がある
-        se_lines = [l for l in section.split("\n") if "自己高揚" in l]
+        se_lines = [l for l in section.split("\n") if "自我增强" in l]
         assert len(se_lines) == 1
         # 説明文（"—" の後）がある
         assert "—" in se_lines[0]
@@ -866,21 +866,21 @@ class TestNaturalLanguageConversion:
         builder = PromptBuilder()
         state = _make_emotional_state(pleasure=0.8, arousal=0.0, dominance=0.0)
         section = builder._build_state_section(state)
-        assert "とても" in section
+        assert "非常" in section
 
     def test_pad_intensity_moderate(self) -> None:
         """PAD |値| 0.4-0.69 は「やや」レベル."""
         builder = PromptBuilder()
         state = _make_emotional_state(pleasure=0.5, arousal=0.0, dominance=0.0)
         section = builder._build_state_section(state)
-        assert "やや" in section
+        assert "有些" in section
 
     def test_pad_intensity_slight(self) -> None:
         """PAD |値| 0.1-0.39 は「わずかに」レベル."""
         builder = PromptBuilder()
         state = _make_emotional_state(pleasure=0.2, arousal=0.0, dominance=0.0)
         section = builder._build_state_section(state)
-        assert "わずかに" in section
+        assert "略微" in section
 
     def test_pad_intensity_neutral(self) -> None:
         """PAD |値| < 0.1 は中立（強度表現なし）."""
@@ -988,7 +988,7 @@ class TestRelationsSection:
         builder = PromptBuilder()
         relations = [_make_relation()]
         result = builder._build_relations_section(relations)
-        assert "## 関係性" in result
+        assert "## 关系" in result
 
     def test_none_returns_empty(self) -> None:
         """None が渡された場合は空文字列を返す."""
@@ -1028,8 +1028,8 @@ class TestTasksSection:
         builder = PromptBuilder()
         tasks = [{"title": "レポートを書く", "priority": 5, "tags": []}]
         result = builder._build_tasks_section(user_tasks=tasks)
-        assert "## 現在のタスク" in result
-        assert "### ユーザーのタスク" in result
+        assert "## 当前任务" in result
+        assert "### 用户的任务" in result
         assert "レポートを書く" in result
 
     def test_character_tasks_only(self) -> None:
@@ -1037,7 +1037,7 @@ class TestTasksSection:
         builder = PromptBuilder()
         tasks = [{"title": "体調を気にかける", "priority": 1, "tags": []}]
         result = builder._build_tasks_section(character_tasks=tasks)
-        assert "### キャラクターのタスク" in result
+        assert "### 角色的任务" in result
         assert "体調を気にかける" in result
 
     def test_both_tasks(self) -> None:
@@ -1047,8 +1047,8 @@ class TestTasksSection:
             user_tasks=[{"title": "買い物", "priority": 5, "tags": []}],
             character_tasks=[{"title": "励ます", "priority": 1, "tags": []}],
         )
-        assert "### ユーザーのタスク" in result
-        assert "### キャラクターのタスク" in result
+        assert "### 用户的任务" in result
+        assert "### 角色的任务" in result
 
     def test_empty_returns_empty(self) -> None:
         """タスクなしで空文字列."""
@@ -1077,7 +1077,7 @@ class TestTasksSection:
             _make_emotional_state(), GoalTree(), [],
             user_tasks=tasks,
         )
-        assert "現在のタスク" in result
+        assert "当前任务" in result
 
     def test_tasks_not_in_static_sections(self) -> None:
         """タスクは静的セクションに含まれない."""

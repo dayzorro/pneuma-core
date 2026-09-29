@@ -1,6 +1,6 @@
-"""SessionEndPipeline: セッション終了時の統合分析 (#130).
+"""SessionEndPipeline：会话结束时的整合分析 (#130)。
 
-Opus 1回で episodic/semantic/relationship を統合更新する。
+一次 LLM 调用即可整合更新 episodic/semantic/relationship。
 """
 
 from __future__ import annotations
@@ -33,15 +33,15 @@ JST = timezone(timedelta(hours=9))
 _MD_CODE_BLOCK_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?\s*```$", re.DOTALL)
 
 _SYSTEM_PROMPT = """\
-あなたはAIキャラクターの記憶管理アシスタントです。
-以下の会話セッションを分析し、保存すべき情報をJSON形式で出力してください。
+你是一个 AI 角色的记忆管理助手。
+请分析以下会话，并以 JSON 形式输出应当保存的信息。
 
-## 出力フォーマット
+## 输出格式
 ```json
 {
   "episodic_memories": [
     {
-      "content": "具体的な出来事の記述",
+      "content": "对具体事件的描述",
       "emotional_valence": -1.0〜1.0,
       "importance": 0.0〜1.0
     }
@@ -49,24 +49,24 @@ _SYSTEM_PROMPT = """\
   "semantic_updates": [
     {
       "action": "add" | "modify" | "delete",
-      "content": "汎化された知識（add/modify時）",
-      "confidence": 0.0〜1.0（add/modify時）,
-      "memory_id": "既存ID（modify/delete時）",
-      "reason": "変更理由（delete時）"
+      "content": "泛化后的知识（add/modify 时）",
+      "confidence": 0.0〜1.0（add/modify 时）,
+      "memory_id": "既有 ID（modify/delete 时）",
+      "reason": "变更理由（delete 时）"
     }
   ],
   "user_context_updates": [
     {
       "file": "identity.md | values.md | core_experiences.md | glossary.md | relationships.md | projects/*.md",
-      "section": "## セクション名（rewrite時のみ必須）",
+      "section": "## 章节名（仅 rewrite 时必填）",
       "action": "rewrite | append",
-      "new_content": "新しいセクション内容またはファイル末尾に追記する内容",
-      "reason": "更新理由の簡潔な説明"
+      "new_content": "新的章节内容，或要追加到文件末尾的内容",
+      "reason": "更新理由的简要说明"
     }
   ],
   "relationship_changes": [
     {
-      "relation_id": "関係性ID",
+      "relation_id": "关系 ID",
       "closeness_delta": -0.1〜0.1,
       "trust_delta": -0.1〜0.1
     }
@@ -74,18 +74,19 @@ _SYSTEM_PROMPT = """\
 }
 ```
 
-## ルール
-- episodic_memories: このセッションで起きた重要な出来事を記録。些細すぎる内容は省略。
-- semantic_updates: 会話から得られた汎化的な知識。既存知識の修正や、古くなった知識の削除も含む。
-- user_context_updates: ユーザーの生活・仕事・趣味・価値観などに関する重要な変化があった場合のみ更新。些細な変化は無視する。rewrite はマークダウンセクションを丸ごと書き換える。append はファイル末尾に追記する。
-- relationship_changes: 会話の内容から関係性の変化を判断。変化がなければ空配列。
-- 該当がない場合は空配列を返すこと。
+## 规则
+- episodic_memories: 记录本次会话中发生的重要事件。过于琐碎的内容请省略。
+- semantic_updates: 从对话中获得的泛化知识。也包括对既有知识的修正，以及删除已过时的知识。
+- user_context_updates: 仅当用户的生活、工作、兴趣、价值观等发生重要变化时才更新。细微变化请忽略。rewrite 表示整段重写某个 markdown 章节。append 表示在文件末尾追加。
+- relationship_changes: 根据对话内容判断关系的变化。若没有变化则为空数组。
+- 所有 content / new_content / reason 等文本字段必须使用简体中文。
+- 若没有对应内容，请返回空数组。
 """
 
 
 @dataclass
 class SessionEndResult:
-    """セッション終了パイプラインの実行結果."""
+    """会话结束流水线的执行结果。"""
 
     success: bool
     episodic_memories_saved: int = 0
@@ -95,9 +96,9 @@ class SessionEndResult:
 
 
 class SessionEndPipeline:
-    """セッション終了時の統合分析パイプライン.
+    """会话结束时的整合分析流水线。
 
-    Opus 1回呼び出しで4つの出力を生成し、各ストアに適用する。
+    一次 LLM 调用生成 4 类输出，并分别应用到对应存储。
     """
 
     def __init__(
@@ -123,7 +124,7 @@ class SessionEndPipeline:
         existing_semantics: list[SemanticMemory] | None = None,
         existing_relations: list[Relation] | None = None,
     ) -> SessionEndResult:
-        """セッション終了分析を実行する."""
+        """执行会话结束分析。"""
         # Empty session → skip LLM
         if not session.messages:
             return SessionEndResult(success=True)
@@ -169,14 +170,14 @@ class SessionEndPipeline:
         existing_semantics: list[SemanticMemory] | None,
         existing_relations: list[Relation] | None,
     ) -> dict:
-        """LLM を呼び出して分析結果を取得."""
+        """调用 LLM 获取分析结果。"""
         system_prompt = _SYSTEM_PROMPT
 
         # Inject UserContext files
         if self._user_context_dir:
             uc_text = self._load_user_context_text()
             if uc_text:
-                system_prompt += "\n\n## ユーザーコンテキスト（現在の内容）\n" + uc_text
+                system_prompt += "\n\n## 用户上下文（当前内容）\n" + uc_text
 
         # Inject existing semantics
         if existing_semantics:
@@ -184,7 +185,7 @@ class SessionEndPipeline:
                 f"- [{m.id}] {m.content} (confidence={m.confidence})"
                 for m in existing_semantics
             ]
-            system_prompt += "\n\n## 既存のセマンティック記憶\n" + "\n".join(sem_lines)
+            system_prompt += "\n\n## 既有的语义记忆\n" + "\n".join(sem_lines)
 
         # Inject existing relations
         if existing_relations:
@@ -193,7 +194,7 @@ class SessionEndPipeline:
                 f"closeness={r.closeness}, trust={r.trust}"
                 for r in existing_relations
             ]
-            system_prompt += "\n\n## 既存の関係性\n" + "\n".join(rel_lines)
+            system_prompt += "\n\n## 既有关系\n" + "\n".join(rel_lines)
 
         request = LLMRequest(
             system_prompt=system_prompt,
@@ -208,7 +209,7 @@ class SessionEndPipeline:
 
     @staticmethod
     def _parse_json(content: str) -> dict:
-        """LLM 応答から JSON をパースする."""
+        """从 LLM 响应中解析 JSON。"""
         # Strip markdown code blocks
         match = _MD_CODE_BLOCK_RE.match(content.strip())
         if match:
@@ -222,7 +223,7 @@ class SessionEndPipeline:
         character_id: str,
         session_id: str,
     ) -> int:
-        """エピソード記憶を保存."""
+        """保存情节记忆。"""
         if not memories:
             return 0
 
@@ -252,7 +253,7 @@ class SessionEndPipeline:
         updates: list[dict],
         character_id: str,
     ) -> int:
-        """セマンティック記憶を追加/更新/削除."""
+        """新增/更新/删除语义记忆。"""
         count = 0
         for update in updates:
             action = update.get("action", "add")
@@ -291,7 +292,7 @@ class SessionEndPipeline:
         return count
 
     def _load_user_context_text(self) -> str:
-        """UserContext ディレクトリからファイルを読み込みテキスト化."""
+        """从 UserContext 目录读取文件并转为文本。"""
         if not self._user_context_dir:
             return ""
 
@@ -324,7 +325,7 @@ class SessionEndPipeline:
         return "\n\n".join(parts)
 
     async def _apply_user_context(self, updates: list[dict]) -> int:
-        """UserContext 更新を適用する."""
+        """应用 UserContext 的更新。"""
         if not updates or not self._user_context_dir:
             return 0
 
@@ -342,7 +343,7 @@ class SessionEndPipeline:
         changes: list[dict],
         existing_relations: list[Relation],
     ) -> int:
-        """関係性の delta を適用."""
+        """应用关系的增量变化。"""
         if not changes:
             return 0
 

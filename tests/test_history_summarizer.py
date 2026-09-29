@@ -208,10 +208,10 @@ class TestHistorySummarizerSummarize:
         await summarizer.summarize(history, limit=30)
 
         call_args = llm.generate.call_args[0][0]
-        # 日本語のプロンプトが含まれていること
+        # 中国語（簡体字）のプロンプトが含まれていること
         assert any(
             keyword in call_args.system_prompt
-            for keyword in ["要約", "会話", "まとめ"]
+            for keyword in ["摘要", "对话", "总结"]
         )
 
     @pytest.mark.asyncio

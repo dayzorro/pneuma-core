@@ -1,4 +1,4 @@
-"""Task データモデル (#132)."""
+"""Task 数据模型 (#132)."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from datetime import date, datetime
 
 @dataclass
 class Task:
-    """タスク."""
+    """任务。"""
 
     id: str
     project_id: str
     title: str
     content: str = ""
-    status: int = 0  # 0=Normal, 2=Completed（TickTick 準拠）
+    status: int = 0  # 0=Normal, 2=Completed（遵循 TickTick 规范）
     priority: int = 0  # 0=None, 1=Low, 3=Medium, 5=High
     due_date: date | None = None
     tags: list[str] = field(default_factory=list)
@@ -25,7 +25,7 @@ class Task:
 
 @dataclass
 class TaskCreate:
-    """タスク作成リクエスト."""
+    """创建任务请求。"""
 
     title: str
     content: str = ""
@@ -36,7 +36,7 @@ class TaskCreate:
 
 @dataclass
 class TaskUpdate:
-    """タスク更新リクエスト（None のフィールドは更新しない）."""
+    """更新任务请求（为 None 的字段不更新）。"""
 
     title: str | None = None
     content: str | None = None

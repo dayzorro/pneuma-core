@@ -1,16 +1,16 @@
-"""Cosine similarity utility for memory embeddings."""
+"""用于记忆 embedding 的余弦相似度工具。"""
 
 import math
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
-    """2つのベクトル間のコサイン類似度を計算.
+    """计算两个向量之间的余弦相似度。
 
     Returns:
-        -1.0〜1.0 の類似度。ゼロベクトルの場合は 0.0。
+        -1.0〜1.0 的相似度。若为零向量则返回 0.0。
 
     Raises:
-        ValueError: ベクトルの次元が異なる場合。
+        ValueError: 两个向量的维度不一致时。
     """
     if len(a) != len(b):
         raise ValueError(f"Vector dimensions must match: {len(a)} != {len(b)}")

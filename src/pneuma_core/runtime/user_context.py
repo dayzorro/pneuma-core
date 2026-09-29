@@ -9,7 +9,7 @@ Layer structure:
   Layer 5: diary/YYYY-MM-DD.md - Diary entries (sorted by date descending)
   Layer 6: diary_summary.md - Past diary summary
 
-Note: relationships.md は relations.yaml に統合済み (#123)。
+Note: relationships.md 已并入 relations.yaml (#123)。
 """
 
 from __future__ import annotations
@@ -269,7 +269,7 @@ class UserContextLoader:
 
 
 def load_user_goals(goals_path: Path) -> GoalTree | None:
-    """vault/user/goals.yaml からユーザーの GoalTree を読み込む.
+    """从 vault/user/goals.yaml 读取用户的 GoalTree。
 
     Returns:
         GoalTree if file exists, None otherwise.
@@ -321,7 +321,7 @@ def load_user_goals(goals_path: Path) -> GoalTree | None:
 
 
 def load_user_relations(relations_path: Path) -> list[Relation] | None:
-    """vault/user/relationships.yaml からユーザーの Relations を読み込む.
+    """从 vault/user/relationships.yaml 读取用户的 Relations。
 
     Returns:
         list[Relation] if file exists, None otherwise.

@@ -1,4 +1,4 @@
-"""EmotionEngine: LLM-based PAD emotion estimation and lifecycle management."""
+"""EmotionEngine：基于 LLM 的 PAD 情绪估计与生命周期管理。"""
 
 from __future__ import annotations
 
@@ -19,31 +19,31 @@ logger = logging.getLogger(__name__)
 _MD_CODE_BLOCK_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL)
 
 _SYSTEM_PROMPT_BASE = """\
-あなたは会話の感情分析エキスパートです。
-以下の会話履歴を読み、キャラクターの現在の感情状態を PAD モデルで推定してください。
+你是一位对话情绪分析专家。
+请阅读以下对话历史，用 PAD 模型推断角色当前的情绪状态。
 
-## キャラクターの性格特性（Big Five）
-- 開放性 (Openness): {openness}
-- 誠実性 (Conscientiousness): {conscientiousness}
+## 角色的性格特质（Big Five）
+- 开放性 (Openness): {openness}
+- 尽责性 (Conscientiousness): {conscientiousness}
 - 外向性 (Extraversion): {extraversion}
-- 協調性 (Agreeableness): {agreeableness}
-- 神経症傾向 (Neuroticism): {neuroticism}
+- 宜人性 (Agreeableness): {agreeableness}
+- 神经质 (Neuroticism): {neuroticism}
 
-キャラクターの性格特性を考慮して、感情状態を推定してください。
+请结合角色的性格特质来推断情绪状态。
 
-以下の JSON 形式で回答してください:
+请严格按照以下 JSON 格式回答，所有文本字段必须使用简体中文：
 {{
   "pleasure": <-1.0〜1.0>,
   "arousal": <-1.0〜1.0>,
   "dominance": <-1.0〜1.0>,
-  "emotion_label": "<感情ラベル>",
-  "situation": "<現在の状況を1文で>"
+  "emotion_label": "<情绪标签，2〜4 个汉字的简体中文，例如：喜悦、不安、平静、感动>",
+  "situation": "<用一句简体中文描述当前状况>"
 }}
 """
 
 
 def _build_system_prompt(personality: Personality) -> str:
-    """Build system prompt with personality information."""
+    """构建包含性格信息的 system prompt。"""
     return _SYSTEM_PROMPT_BASE.format(
         openness=personality.openness,
         conscientiousness=personality.conscientiousness,
@@ -67,14 +67,14 @@ def _clamp(value: float, low: float = -1.0, high: float = 1.0) -> float:
 
 
 def _sanitize_text(text: str, max_len: int) -> str:
-    """Remove control characters and truncate."""
+    """移除控制字符并截断。"""
     cleaned = text.replace("\n", " ").replace("\r", " ").replace("\t", " ")
     return cleaned[:max_len]
 
 
 @dataclass(frozen=True)
 class EmotionConfig:
-    """Configuration for EmotionEngine."""
+    """EmotionEngine 的配置。"""
 
     recent_messages_limit: int = 10
     decay_half_life: float = 3600.0
@@ -82,7 +82,7 @@ class EmotionConfig:
 
 @dataclass(frozen=True)
 class EmotionResult:
-    """Result of emotion evaluation with trigger information."""
+    """情绪评估结果，附带触发信息。"""
 
     state: EmotionalState
     trigger_type: str  # "triggered"
@@ -90,7 +90,7 @@ class EmotionResult:
 
 
 class EmotionEngine:
-    """LLM-based emotion estimation with baseline decay."""
+    """基于 LLM 的情绪估计，并带有基线衰减。"""
 
     def __init__(
         self,
@@ -109,13 +109,13 @@ class EmotionEngine:
         turn_count: int,
         current_state: EmotionalState,
     ) -> EmotionResult:
-        """Evaluate emotion by direct LLM estimation every turn.
+        """每轮都通过直接的 LLM 估计来评估情绪。
 
-        Every turn calls estimate() once to get PAD values directly.
-        No Tier 0/1 gating -- simplified from the hybrid trigger system.
+        每轮调用一次 estimate() 直接获得 PAD 值。
+        不再使用 Tier 0/1 门控——相较此前的混合触发机制已简化。
 
         Returns:
-            EmotionResult with state and trigger_type="triggered".
+            trigger_type="triggered" 的 EmotionResult。
         """
         state = await self.estimate(personality, messages)
         return EmotionResult(
@@ -128,9 +128,9 @@ class EmotionEngine:
         personality: Personality,
         messages: list[dict],
     ) -> EmotionalState:
-        """Estimate emotional state from conversation via LLM.
+        """通过 LLM 从对话中估计情绪状态。
 
-        Returns neutral state on any error (malformed JSON, missing fields, LLM exception).
+        任何错误（JSON 格式错误、缺字段、LLM 异常）都返回中立状态。
         """
         truncated = messages[-self._config.recent_messages_limit :]
 
@@ -187,7 +187,7 @@ class EmotionEngine:
         personality: Personality,
         elapsed_seconds: float,
     ) -> EmotionalState:
-        """Decay emotional state towards personality baseline."""
+        """让情绪状态向性格基线衰减。"""
         baseline = personality_to_pad_baseline(personality)
 
         pleasure = exponential_decay(

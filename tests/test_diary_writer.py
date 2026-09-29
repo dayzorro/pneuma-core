@@ -52,32 +52,32 @@ class TestShouldTrigger:
     def test_oyasumi_triggers(self) -> None:
         """「おやすみ」でトリガーされる."""
         writer = _make_diary_writer()
-        assert writer.should_trigger("おやすみ") is True
+        assert writer.should_trigger("晚安") is True
 
     def test_ohayo_triggers(self) -> None:
         """「おはよう」でトリガーされる."""
         writer = _make_diary_writer()
-        assert writer.should_trigger("おはよう") is True
+        assert writer.should_trigger("早安") is True
 
     def test_oyasuminasai_triggers(self) -> None:
         """「おやすみなさい」でトリガーされる."""
         writer = _make_diary_writer()
-        assert writer.should_trigger("おやすみなさい") is True
+        assert writer.should_trigger("晚安，我去睡啦") is True
 
     def test_ohayou_gozaimasu_triggers(self) -> None:
         """「おはようございます」でトリガーされる."""
         writer = _make_diary_writer()
-        assert writer.should_trigger("おはようございます") is True
+        assert writer.should_trigger("早上好呀") is True
 
     def test_keyword_in_sentence_triggers(self) -> None:
         """文中にキーワードが含まれていてもトリガーされる."""
         writer = _make_diary_writer()
-        assert writer.should_trigger("今日は疲れた、おやすみ〜") is True
+        assert writer.should_trigger("今天有点累，晚安〜") is True
 
     def test_no_keyword_does_not_trigger(self) -> None:
         """キーワードがなければトリガーされない."""
         writer = _make_diary_writer()
-        assert writer.should_trigger("こんにちは") is False
+        assert writer.should_trigger("你好") is False
 
     def test_empty_input_does_not_trigger(self) -> None:
         """空文字列はトリガーされない."""
@@ -87,8 +87,8 @@ class TestShouldTrigger:
     def test_similar_but_different_word_does_not_trigger(self) -> None:
         """似ているが異なる語はトリガーされない."""
         writer = _make_diary_writer()
-        assert writer.should_trigger("おやすみん") is True  # 「おやすみ」を含むので True
-        assert writer.should_trigger("やすみ") is False  # 「おやすみ」を含まない
+        assert writer.should_trigger("晚安啊") is True  # 包含「晚安」所以为 True
+        assert writer.should_trigger("晚上好") is False  # 不包含「晚安」
 
 
 # --- _get_effective_date tests (date boundary fix) ---
@@ -184,7 +184,7 @@ class TestMaybeGenerateWithEffectiveDate:
         with patch("pneuma_core.runtime.diary_writer.datetime") as mock_dt:
             mock_dt.now.return_value = fake_now
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-            await writer.maybe_generate("おやすみ")
+            await writer.maybe_generate("晚安")
 
         # 2/28 の日記として保存されること
         diary_file = diary_dir / "2026-02-28.md"
@@ -223,7 +223,7 @@ class TestMaybeGenerate:
         llm = _make_llm()
         writer = _make_diary_writer(llm=llm, logs_dir=logs_dir, diary_dir=diary_dir)
 
-        await writer.maybe_generate("おやすみなさい")
+        await writer.maybe_generate("晚安，我睡了")
 
         # LLM が呼ばれたことを確認
         assert llm.generate.call_count == 1
@@ -236,7 +236,7 @@ class TestMaybeGenerate:
         llm = _make_llm()
         writer = _make_diary_writer(llm=llm, logs_dir=logs_dir, diary_dir=diary_dir)
 
-        await writer.maybe_generate("こんにちは")
+        await writer.maybe_generate("你好")
 
         assert llm.generate.call_count == 0
 
@@ -248,8 +248,8 @@ class TestMaybeGenerate:
         llm = _make_llm()
         writer = _make_diary_writer(llm=llm, logs_dir=logs_dir, diary_dir=diary_dir)
 
-        await writer.maybe_generate("おやすみ")
-        await writer.maybe_generate("おはよう")
+        await writer.maybe_generate("晚安")
+        await writer.maybe_generate("早安")
 
         # 1回目だけ生成される
         assert llm.generate.call_count == 1
@@ -266,13 +266,13 @@ class TestMaybeGenerate:
         with patch("pneuma_core.runtime.diary_writer.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 2, 28, 23, 0, 0)
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-            await writer.maybe_generate("おやすみ")
+            await writer.maybe_generate("晚安")
 
         # 2日目
         with patch("pneuma_core.runtime.diary_writer.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 3, 1, 7, 0, 0)
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-            await writer.maybe_generate("おはよう")
+            await writer.maybe_generate("早安")
 
         assert llm.generate.call_count == 2
 
@@ -355,10 +355,10 @@ class TestGenerateDiary:
 
         await writer._generate_diary("2026-02-28")
 
-        # LLM に渡されたリクエストに「会話がありませんでした」が含まれる
+        # LLM に渡されたリクエストに「今天没有对话」が含まれる
         call_args = llm.generate.call_args
         request: LLMRequest = call_args[0][0]
-        assert "今日は会話がありませんでした" in request.messages[0]["content"]
+        assert "今天没有对话" in request.messages[0]["content"]
 
     @pytest.mark.asyncio()
     async def test_system_prompt_contains_character_info(

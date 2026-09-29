@@ -176,7 +176,7 @@ class RuntimeEngine:
             logger.warning("Memory search failed, continuing without memories")
             system_messages.append(SystemMessage(
                 type="warning",
-                message="Memory search failed, continuing without memories",
+                message="记忆检索失败，本轮将在没有记忆的情况下继续对话",
                 component="memory_search",
             ))
 
@@ -193,7 +193,7 @@ class RuntimeEngine:
                 )
                 system_messages.append(SystemMessage(
                     type="warning",
-                    message="User context search failed, continuing without results",
+                    message="用户上下文检索失败，本轮将在没有其结果的情况下继续对话",
                     component="user_context_search",
                 ))
 
@@ -270,12 +270,12 @@ class RuntimeEngine:
             if isinstance(e, LLMTimeoutError):
                 raise
             logger.warning("LLM generate failed, using fallback response: %s: %s", type(e).__name__, e)
-            response_text = "申し訳ありません、うまく応答できませんでした。"
+            response_text = "抱歉，我一时没能组织好语言。"
             speech_text = response_text
             structured = StructuredResponse(speech=response_text)
             system_messages.append(SystemMessage(
                 type="error",
-                message="LLM generate failed, using fallback response",
+                message="LLM 调用失败，已改用兜底回复",
                 component="llm",
             ))
 
@@ -469,18 +469,18 @@ class RuntimeEngine:
                 self._pending_emotion_task = None
 
     _SUMMARIZE_PROMPT = """\
-以下の会話内容を簡潔に要約してください。要約には以下を含めてください:
-- 話題になった主なトピック
-- 重要な決定や約束
-- 会話の感情的なトーン
-- 未解決の話題
+请简洁地总结以下对话内容。总结中需要包含：
+- 谈过的主要话题
+- 重要的决定或约定
+- 对话的情绪基调
+- 尚未解决的问题
 
 {previous_summary_section}
 
-会話内容:
+对话内容:
 {conversation}
 
-要約を日本語の箇条書きで出力してください。"""
+请用简体中文、以要点列表的形式输出总结。"""
 
     def _build_messages_for_llm(self) -> list[dict]:
         """Build message list for LLM (no system role in messages)."""
@@ -496,9 +496,9 @@ class RuntimeEngine:
             previous_summary_section = ""
             if self._conversation_summary is not None:
                 previous_summary_section = (
-                    f"前回の要約:\n{self._conversation_summary}\n\n"
-                    "上記の前回の要約と、以下の新しい会話を統合して要約してください。"
-                )
+                f"上次的总结:\n{self._conversation_summary}\n\n"
+                "请把上面的总结与以下新的对话合并后再总结一次。"
+            )
 
             prompt = self._SUMMARIZE_PROMPT.format(
                 previous_summary_section=previous_summary_section,
@@ -508,7 +508,7 @@ class RuntimeEngine:
             response = await self._llm.generate(
                 LLMRequest(
                     system_prompt=prompt,
-                    messages=[{"role": "user", "content": "要約してください。"}],
+                    messages=[{"role": "user", "content": "请总结。"}],
                     model="claude-haiku-4-5-20251001",
                     temperature=0.0,
                     max_tokens=512,
@@ -516,7 +516,7 @@ class RuntimeEngine:
             )
 
             summary_text = response.content.strip()
-            self._conversation_summary = f"[これまでの会話の要約]\n{summary_text}"
+            self._conversation_summary = f"[此前的对话总结]\n{summary_text}"
         except Exception:
             logger.warning("History summarization failed, continuing with simple trim")
 

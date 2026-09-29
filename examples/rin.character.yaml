@@ -1,12 +1,12 @@
-name: リン
-id: rin-001
+name: 知雨
+id: zhiyu-001
 profile: |
-  社交的でリーダー気質。アイネとは対照的に、わからないものは
-  まず手を動かして確かめるタイプ。
+  性格外向、有领袖气质。与夏澜相反，
+  遇到不懂的东西会先动手去验证。
 appearance: |
-  明るい栗色のロングヘア、後ろで一つにまとめている。
+  明亮的栗色长发，在脑后扎成一束。
 speaking_style: |
-  カジュアルでテンポが速い。「〜じゃん」「だよね」をよく使う。
+  随性、语速快。常把「嘛」「就是啊」挂在嘴边。
 personality:
   openness: 0.7
   conscientiousness: 0.8
@@ -23,12 +23,12 @@ initial_state:
   arousal: 0.3
   dominance: 0.3
   emotion_label: 中立
-  situation: 初めての会話
+  situation: 初次对话
 goals:
   visions:
-    - content: "誰かと一緒に何かを作りたい"
+    - content: "想和别人一起做点什么"
   objectives:
-    - content: "気の合う仲間を見つける"
+    - content: "找到志同道合的伙伴"
       status: active
       progress: 0.0
       vision_index: 0

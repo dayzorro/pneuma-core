@@ -6,11 +6,11 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class ChangeRecord:
-    """内部状態変化の記録.
+    """内部状态变化的记录。
 
-    type: "emotion_updated", "memory_added", "goal_updated" など
-    before: 変更前の状態（None = 新規追加）
-    after: 変更後の状態
+    type: "emotion_updated", "memory_added", "goal_updated" 等
+    before: 变更前的状态（None = 新增）
+    after: 变更后的状态
     """
 
     id: str

@@ -1,8 +1,7 @@
-"""Vault path resolution utility.
+"""Vault 路径解析工具。
 
-PNEUMA_VAULT_PATH 環境変数からサブパスを解決するユーティリティ。
-vault/ ディレクトリにキャラクター定義・ユーザーコンテキスト・
-ランタイムデータを一元管理する。
+从 PNEUMA_VAULT_PATH 环境变量解析子路径的工具。
+在 vault/ 目录下统一管理角色定义、用户上下文与运行时数据。
 """
 
 from __future__ import annotations
@@ -15,48 +14,48 @@ _ENV_VAR = "PNEUMA_VAULT_PATH"
 
 
 def get_vault_path() -> Path:
-    """Vault のルートパスを返す.
+    """返回 Vault 的根路径。
 
-    PNEUMA_VAULT_PATH 環境変数が設定されていればその値を使い、
-    未設定の場合はデフォルト ``./vault`` にフォールバックする。
+    若设置了 PNEUMA_VAULT_PATH 环境变量则使用其值，
+    未设置时回退到默认值 ``./vault``。
     """
     return Path(os.environ.get(_ENV_VAR, _DEFAULT_VAULT_PATH))
 
 
 def get_characters_dir() -> Path:
-    """キャラクター定義ディレクトリ ``vault/characters/`` のパスを返す."""
+    """返回角色定义目录 ``vault/characters/`` 的路径。"""
     return get_vault_path() / "characters"
 
 
 def get_user_context_dir() -> Path:
-    """ユーザーコンテキストディレクトリ ``vault/user/`` のパスを返す."""
+    """返回用户上下文目录 ``vault/user/`` 的路径。"""
     return get_vault_path() / "user"
 
 
 def get_logs_dir() -> Path:
-    """ログディレクトリ ``vault/logs/`` のパスを返す."""
+    """返回日志目录 ``vault/logs/`` 的路径。"""
     return get_vault_path() / "logs"
 
 
 def get_db_path() -> Path:
-    """データベースファイル ``vault/pneuma.db`` のパスを返す."""
+    """返回数据库文件 ``vault/pneuma.db`` 的路径。"""
     return get_vault_path() / "pneuma.db"
 
 
 def get_entity_dir(entity_name: str) -> Path:
-    """エンティティデータディレクトリ ``vault/{entity_name}/`` のパスを返す.
+    """返回实体数据目录 ``vault/{entity_name}/`` 的路径。
 
-    vault/{entity}/ パターンでエンティティ固有のデータを管理するために使用する。
-    例: vault/mira/, vault/user/, vault/aine/ など。
+    用于以 vault/{entity}/ 的模式管理实体专属数据。
+    例如: vault/mira/、vault/user/、vault/aine/ 等。
     """
     return get_vault_path() / entity_name
 
 
 def get_entity_diary_dir(entity_name: str) -> Path:
-    """エンティティの日記ディレクトリ ``vault/{entity_name}/diary/`` のパスを返す."""
+    """返回实体的日记目录 ``vault/{entity_name}/diary/`` 的路径。"""
     return get_entity_dir(entity_name) / "diary"
 
 
 def get_entity_relations_path(entity_name: str) -> Path:
-    """エンティティの関係性ファイル ``vault/{entity_name}/relations.yaml`` のパスを返す."""
+    """返回实体的关系文件 ``vault/{entity_name}/relations.yaml`` 的路径。"""
     return get_entity_dir(entity_name) / "relations.yaml"

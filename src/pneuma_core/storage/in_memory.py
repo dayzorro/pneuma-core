@@ -1,4 +1,4 @@
-"""InMemoryStorageBackend: test-oriented in-memory implementation."""
+"""InMemoryStorageBackend：面向测试的内存存储实现。"""
 
 from pneuma_core.memory.similarity import cosine_similarity
 from pneuma_core.models.change_record import ChangeRecord
@@ -11,7 +11,7 @@ from pneuma_core.models.todo import TodoItem
 
 
 class InMemoryStorageBackend:
-    """インメモリストレージ実装（テスト・開発用）."""
+    """内存存储实现（用于测试与开发）。"""
 
     def __init__(self) -> None:
         self._characters: dict[str, Character] = {}
@@ -37,7 +37,7 @@ class InMemoryStorageBackend:
     # --- Memory ---
 
     async def save_episodic_memory(self, memory: EpisodicMemory) -> None:
-        """エピソード記憶を追加（append-only: 同一IDでも上書きしない）."""
+        """追加情节记忆（append-only：即使 ID 相同也不覆盖）。"""
         self._episodic.append(memory)
 
     async def get_episodic_memories(self, character_id: str) -> list[EpisodicMemory]:
@@ -62,13 +62,13 @@ class InMemoryStorageBackend:
         return [m for m in self._semantic if m.character_id == character_id]
 
     async def update_semantic_memory(self, memory: SemanticMemory) -> None:
-        """セマンティック記憶を ID で上書き更新."""
+        """按 ID 覆盖更新语义记忆。"""
         self._semantic = [
             memory if m.id == memory.id else m for m in self._semantic
         ]
 
     async def delete_semantic_memory(self, memory_id: str) -> None:
-        """セマンティック記憶を ID で削除."""
+        """按 ID 删除语义记忆。"""
         self._semantic = [m for m in self._semantic if m.id != memory_id]
 
     # --- Goals ---

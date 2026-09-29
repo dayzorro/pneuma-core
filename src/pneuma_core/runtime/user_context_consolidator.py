@@ -25,45 +25,45 @@ _VALID_UPDATE_TYPES = {"add", "modify", "replace"}
 _SECTION_RE = re.compile(r"(?=^## )", re.MULTILINE)
 
 ANALYSIS_SYSTEM_PROMPT = """\
-あなたはユーザーとAIキャラクターの会話を分析し、ユーザーコンテキストの更新提案を生成するアシスタントです。
+你是一个分析用户与 AI 角色之间对话、并生成用户上下文更新建议的助手。
 
-ユーザーコンテキストは以下の層構造で管理されています:
-- identity.md: 基本プロフィール（名前、居住地、年齢など）
-- values.md: 価値観、キャリアビジョン
-- glossary.md: 用語集（ユーザー固有の用語や略語）
-- core_experiences.md: 原体験（人生を変えた経験）
-- projects/*.md: 進行中のプロジェクト（健康管理、仕事など）
+用户上下文按以下层次结构管理:
+- identity.md: 基本资料（姓名、居住地、年龄等）
+- values.md: 价值观、职业愿景
+- glossary.md: 术语表（用户特有的用语或缩写）
+- core_experiences.md: 核心经历（改变人生的经历）
+- projects/*.md: 进行中的项目（健康管理、工作等）
 
-会話から検出された情報を、適切なファイルへの更新提案として出力してください。
+请把从对话中检测到的信息，作为对相应文件的更新建议输出。
 
-リスクレベル:
-- "low": projects/ 配下のステータス更新（自動適用される）
-- "medium": glossary への追加（自動適用 + 報告される）
-- "high": identity, values, core_experiences の変更（ユーザー承認が必要）
+风险等级:
+- "low": projects/ 下的状态更新（自动应用）
+- "medium": 追加到 glossary（自动应用并上报）
+- "high": identity、values、core_experiences 的修改（需要用户批准）
 
 update_type:
-- "add": 既存ファイルの末尾にセクションを追加（section フィールド不要）
-- "modify": 指定セクションの内容を差し替え（section フィールドでセクション見出しを指定）
-- "replace": ファイル全体を置換（新規ファイル作成を含む）
+- "add": 在既有文件末尾追加章节（不需要 section 字段）
+- "modify": 替换指定章节的内容（用 section 字段指定章节标题）
+- "replace": 替换整个文件（包括新建文件）
 
 重要:
-- 音声入力の誤字は文脈から修正して反映（例：「しぶや」→「渋谷」）
-- 些細な情報や更新不要な場合は空配列を返す
-- section フィールドは "## セクション名" の形式で指定
+- 语音输入的错别字请根据上下文修正后再写入（例：「shibuya」→「涩谷」）
+- 信息过于琐碎或无需更新时返回空数组
+- section 字段请使用 "## 章节名" 的形式
 
-出力は JSON 配列で、各要素は以下の形式です:
+输出为 JSON 数组，每个元素格式如下:
 [
   {
     "target_file": "projects/health.md",
     "update_type": "modify",
-    "content": "## カフェイン断ち\\nステータス: 3日目\\n",
+    "content": "## 戒咖啡因\\n状态: 第 3 天\\n",
     "risk_level": "low",
-    "reason": "ユーザーがカフェイン断ち3日目と報告",
-    "section": "## カフェイン断ち"
+    "reason": "用户报告已戒咖啡因 3 天",
+    "section": "## 戒咖啡因"
   }
 ]
 
-JSON 配列のみを出力してください。説明文は不要です。
+只输出 JSON 数组，不要任何说明文字。所有文本字段请使用简体中文。
 """
 
 
@@ -136,17 +136,17 @@ class UserContextConsolidator:
         if not conversation_history:
             return result
 
-        # 1. LLM で会話分析
+        # 1. 用 LLM 分析对话
         raw_updates = await self._analyze_conversation(conversation_history)
         if not raw_updates:
             return result
 
-        # 2. バリデーションとパース
+        # 2. 校验与解析
         updates = self._parse_updates(raw_updates)
         if not updates:
             return result
 
-        # 3. リスクレベル別に処理
+        # 3. 按风险等级分别处理
         for update in updates:
             if update.risk_level == ContextUpdateRisk.HIGH:
                 result.pending_approval.append(update)
@@ -154,14 +154,14 @@ class UserContextConsolidator:
                     f"[pending] {update.target_file}: {update.reason}"
                 )
             else:
-                # LOW / MEDIUM: ファイルに適用
+                # LOW / MEDIUM: 直接应用到文件
                 self._apply_update(update, user_context_dir)
                 result.applied.append(update)
                 result.change_log.append(
                     f"{update.target_file}: {update.reason}"
                 )
 
-        # 4. 変更ログをファイルに書き出し
+        # 4. 把变更日志写入文件
         if result.change_log:
             self._write_update_log(result.change_log, user_context_dir)
 
@@ -305,12 +305,12 @@ class UserContextConsolidator:
 def _replace_section(
     document: str, section_heading: str, new_content: str
 ) -> str:
-    """Replace a specific section in a markdown document.
+    """替换 markdown 文档中的指定章节。
 
-    Finds the section matching section_heading (e.g. "## カフェイン断ち")
-    and replaces it with new_content. The rest of the document is preserved.
+    查找与 section_heading 匹配的章节（例如 "## 戒咖啡因"），
+    并用 new_content 替换它。文档的其余部分保持不变。
 
-    If the section is not found, the new content is appended at the end.
+    若找不到该章节，则把新内容追加到末尾。
     """
     sections = _SECTION_RE.split(document)
 

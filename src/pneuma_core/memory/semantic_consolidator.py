@@ -1,7 +1,6 @@
-"""Semantic memory consolidation: episodic -> semantic generalization.
+"""语义记忆整合：由情节记忆归纳出语义记忆。
 
-Clusters related episodic memories and uses LLM to extract generalized
-knowledge (semantic memories) from them.
+对相关的情节记忆进行聚类，并使用 LLM 从中抽取可泛化的知识（语义记忆）。
 """
 
 from __future__ import annotations
@@ -17,23 +16,24 @@ from pneuma_core.memory.similarity import cosine_similarity
 from pneuma_core.models.memory import EpisodicMemory, SemanticMemory
 
 CONSOLIDATION_SYSTEM_PROMPT = """\
-あなたは記憶の統合を行うシステムです。
-以下のエピソード記憶群から共通するパターン・理解・一般的な知識を抽出してください。
+你是一个负责记忆整合的系统。
+请从以下情节记忆群中抽取出共同的模式、理解与一般性知识。
+所有文本字段必须使用简体中文。
 
-エピソード:
+情节记忆:
 {episodes}
 
-以下のJSON形式で応答してください:
+请严格按照以下 JSON 格式回答:
 {{
-  "content": "統合された理解（1-2文）",
-  "confidence": 0.0-1.0（確信度。エピソード数や一貫性から判断）
+  "content": "整合后的理解（1-2 句）",
+  "confidence": 0.0-1.0（确信度，根据情节数量与一致性判断）
 }}
 """
 
 
 @dataclass(frozen=True)
 class SemanticConsolidationConfig:
-    """Tunable parameters for semantic consolidation."""
+    """语义记忆整合的可调参数。"""
 
     min_episodes: int = 3
     similarity_threshold: float = 0.7
@@ -43,16 +43,16 @@ class SemanticConsolidationConfig:
 
 
 class SemanticConsolidator:
-    """Consolidate episodic memories into semantic memories.
+    """将情节记忆整合为语义记忆。
 
-    Pipeline:
-        1. Filter episodes without embeddings
-        2. Cluster related episodes by embedding similarity
-        3. Filter clusters with < min_episodes
-        4. For each cluster, call LLM to generate semantic memory
-        5. Check for duplicates against existing semantics
-        6. Embed the new semantic memories
-        7. Return new SemanticMemory objects
+    流程:
+        1. 过滤掉没有 embedding 的情节记忆
+        2. 按 embedding 相似度对相关情节聚类
+        3. 过滤掉成员数少于 min_episodes 的簇
+        4. 对每个簇调用 LLM 生成语义记忆
+        5. 与已有语义记忆做重复检查
+        6. 为新语义记忆生成 embedding
+        7. 返回新的 SemanticMemory 对象
     """
 
     def __init__(
@@ -175,7 +175,7 @@ class SemanticConsolidator:
 
             request = LLMRequest(
                 system_prompt=system_prompt,
-                messages=[{"role": "user", "content": "上記のエピソードを統合してください。"}],
+                messages=[{"role": "user", "content": "请整合上述情节记忆。"}],
                 model=self.config.model,
                 temperature=0.3,
                 max_tokens=512,

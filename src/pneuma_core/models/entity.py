@@ -1,8 +1,8 @@
 """EntityContext: unified context format for users and characters.
 
-Issue #121: Entity 統一フォーマット
-キャラクターとユーザーが同じインターフェースで扱えるようにする。
-キャラクター固有のフィールド（personality, speaking_style）はユーザーでは None。
+Issue #121: Entity 统一格式
+让角色与用户能够以同一套接口处理。
+角色特有的字段（personality、speaking_style）在用户侧为 None。
 
 This is an ADDITIVE abstraction layer -- it wraps existing models
 (Character, UserContext) without modifying them.

@@ -12,11 +12,11 @@ def _validate_range(value: float, name: str, min_val: float, max_val: float) -> 
 
 @dataclass(frozen=True)
 class EpisodicMemory:
-    """エピソード記憶: 具体的な出来事の記録.
+    """情节记忆：具体事件的记录。
 
-    emotional_valence: -1.0〜1.0（不快〜快）
+    emotional_valence: -1.0〜1.0（不快〜愉悦）
     importance: 0.0〜1.0
-    embedding: 1536次元ベクトル（None = 未生成）
+    embedding: 1536 维向量（None = 尚未生成）
     """
 
     id: str
@@ -35,9 +35,9 @@ class EpisodicMemory:
 
 @dataclass(frozen=True)
 class SemanticMemory:
-    """意味記憶: 汎化された知識.
+    """语义记忆：泛化后的知识。
 
-    confidence: 0.0〜1.0（裏付けエピソード数で増加）
+    confidence: 0.0〜1.0（随支撑它的事件数量而提高）
     """
 
     id: str

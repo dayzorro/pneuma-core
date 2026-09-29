@@ -27,48 +27,49 @@ _STATE_FILE = ".diary_processor_state.json"
 # ---------------------------------------------------------------------------
 
 _SUMMARY_SYSTEM_PROMPT = """\
-あなたは日記を読んで要約するアシスタントです。
-日記の内容を簡潔に1-2行で要約してください。
+你是一个阅读并总结日记的助手。
+请用 1-2 行简洁地总结日记内容。
 
-出力は JSON で以下の形式です:
+输出为如下 JSON 格式:
 {
-  "summary": "YYYY-MM-DD: 要約内容"
+  "summary": "YYYY-MM-DD: 摘要内容"
 }
 
-JSON のみを出力してください。説明文は不要です。
+只输出 JSON，不要任何说明文字。
+摘要内容请使用简体中文。
 """
 
 _EXTRACTION_SYSTEM_PROMPT = """\
-あなたは日記から情報を抽出するアシスタントです。
-以下の4カテゴリの情報を日記から抽出してください。
+你是一个从日记中抽取信息的助手。
+请从日记中抽取以下 4 类信息。
 
-1. relationships: 新しい人物や関係性の変化
-2. glossary: 新しい用語、略語、専門用語
-3. projects: プロジェクトやトピックの更新
-4. core_experiences: 人生を変えるような重要な体験（高リスク: 提案のみ）
+1. relationships: 新出现的人物或关系的变化
+2. glossary: 新的术语、缩写、专业词汇
+3. projects: 项目或话题的更新
+4. core_experiences: 足以改变人生的重要经历（高风险：仅提出建议）
 
-出力は JSON で以下の形式です:
+输出为如下 JSON 格式:
 {
-  "relationships": [{"name": "人名", "context": "関係性の説明"}],
-  "glossary": [{"term": "用語", "definition": "定義"}],
-  "projects": [{"name": "プロジェクト名", "description": "説明", "status": "active"}],
-  "core_experiences": [{"date": "YYYY-MM-DD", "event": "出来事", "impact": "影響"}]
+  "relationships": [{"name": "人名", "context": "关系的说明"}],
+  "glossary": [{"term": "术语", "definition": "定义"}],
+  "projects": [{"name": "项目名", "description": "说明", "status": "active"}],
+  "core_experiences": [{"date": "YYYY-MM-DD", "event": "事件", "impact": "影响"}]
 }
 
-該当する情報がないカテゴリは空配列にしてください。
-JSON のみを出力してください。
+没有对应信息的类别请返回空数组。
+只输出 JSON。所有文本字段请使用简体中文。
 """
 
 _BOOTSTRAP_SUMMARY_PROMPT = """\
-あなたは月単位の日記を読んで要約するアシスタントです。
-以下の日記群を読んで、その月の活動を要約してください。
+你是一个阅读并总结月度日记的助手。
+请阅读以下日记群，总结该月的活动。
 
-出力は JSON で以下の形式です:
+输出为如下 JSON 格式:
 {
-  "summary": "YYYY年M月: 要約内容"
+  "summary": "YYYY年M月: 摘要内容"
 }
 
-JSON のみを出力してください。
+只输出 JSON。摘要内容请使用简体中文。
 """
 
 
@@ -319,7 +320,7 @@ class DiaryProcessor:
             existing = summary_path.read_text(encoding="utf-8")
             updated = existing.rstrip() + "\n\n" + new_lines + "\n"
         else:
-            updated = "# 日記サマリー\n\n" + new_lines + "\n"
+            updated = "# 日记摘要\n\n" + new_lines + "\n"
 
         summary_path.write_text(updated, encoding="utf-8")
 
@@ -427,7 +428,7 @@ class BootstrapProcessor:
             current += 1
 
             if self._progress_callback:
-                self._progress_callback(current, total, f"{month_key} の要約完了")
+                self._progress_callback(current, total, f"{month_key} 摘要完成")
 
         self._monthly_summaries = summaries
 
@@ -633,8 +634,8 @@ class BootstrapProcessor:
     # --- File writing helpers ---
 
     def _write_summary_file(self, summaries: dict[str, str]) -> None:
-        """Write diary_summary.md."""
-        lines = ["# 日記サマリー\n"]
+        """写入 diary_summary.md。"""
+        lines = ["# 日记摘要\n"]
         for month_key in sorted(summaries.keys()):
             lines.append(f"## {month_key}\n")
             lines.append(f"- {summaries[month_key]}\n")
@@ -645,18 +646,18 @@ class BootstrapProcessor:
         )
 
     def _write_core_experiences_draft(self, experiences: list[dict]) -> None:
-        """Write core_experiences.md as a draft."""
+        """把 core_experiences.md 写为草稿。"""
         lines = [
-            "# 原体験（候補）\n",
-            "> このファイルは自動生成された候補リストです。内容を確認し、編集してください。\n",
+            "# 核心经历（候选）\n",
+            "> 本文件是自动生成的候选清单。请确认内容并编辑。\n",
         ]
         for exp in experiences:
-            event = exp.get("event", "不明")
+            event = exp.get("event", "未知")
             impact = exp.get("impact", "")
-            exp_date = exp.get("date", "不明")
+            exp_date = exp.get("date", "未知")
             lines.append(f"## {event}\n")
-            lines.append(f"- 日付: {exp_date}")
-            lines.append(f"- 影響: {impact}\n")
+            lines.append(f"- 日期: {exp_date}")
+            lines.append(f"- 影响: {impact}\n")
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.output_dir / "core_experiences.md").write_text(
@@ -664,34 +665,34 @@ class BootstrapProcessor:
         )
 
     def _write_project_drafts(self, projects: list[dict]) -> None:
-        """Write projects/*.md drafts."""
+        """把 projects/*.md 写为草稿。"""
         projects_dir = self.output_dir / "projects"
         projects_dir.mkdir(parents=True, exist_ok=True)
 
         for proj in projects:
-            name = proj.get("name", "unknown")
+            name = proj.get("name", "未命名")
             description = proj.get("description", "")
             status = proj.get("status", "active")
 
-            # Sanitize filename
+            # 清理文件名
             safe_name = re.sub(r"[^\w\-]", "-", name.lower())
             filename = f"{safe_name}.md"
 
             content = (
                 f"# {name}\n\n"
-                f"ステータス: {status}\n\n"
+                f"状态: {status}\n\n"
                 f"## 概要\n\n{description}\n"
             )
             (projects_dir / filename).write_text(content, encoding="utf-8")
 
     def _write_relationships_draft(self, relationships: list[dict]) -> None:
-        """Write relations_draft.yaml (YAML format for relations.yaml integration)."""
+        """写入 relations_draft.yaml（YAML 格式，便于并入 relations.yaml）。"""
         import yaml
 
         draft = {
-            "_note": "自動生成された候補リストです。内容を確認し、relations.yaml に統合してください。",
+            "_note": "这是自动生成的候选清单。请确认内容后并入 relations.yaml。",
             "relations": [
-                {"name": rel.get("name", "不明"), "context": rel.get("context", "")}
+                {"name": rel.get("name", "未知"), "context": rel.get("context", "")}
                 for rel in relationships
             ],
         }
@@ -703,13 +704,13 @@ class BootstrapProcessor:
         )
 
     def _write_glossary_draft(self, glossary: list[dict]) -> None:
-        """Write glossary.md draft."""
+        """把 glossary.md 写为草稿。"""
         lines = [
-            "# 用語集\n",
-            "> このファイルは自動生成された候補リストです。内容を確認し、編集してください。\n",
+            "# 术语表\n",
+            "> 本文件是自动生成的候选清单。请确认内容并编辑。\n",
         ]
         for item in glossary:
-            term = item.get("term", "不明")
+            term = item.get("term", "未知")
             definition = item.get("definition", "")
             lines.append(f"## {term}\n")
             lines.append(f"- {definition}\n")

@@ -1,4 +1,4 @@
-"""Character sheet YAML reader/writer."""
+"""角色设定卡（Character sheet）YAML 读写器。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pneuma_core.models.values import Values
 
 
 def _require(data: dict, key: str) -> Any:
-    """必須フィールドの取得。欠損時は ValueError."""
+    """获取必需字段。缺失时抛出 ValueError。"""
     if key not in data or data[key] is None:
         raise ValueError(f"Required field '{key}' is missing")
     return data[key]
@@ -83,8 +83,8 @@ def _parse_goals(data: dict, character_id: str) -> GoalTree:
 
 
 def _goals_to_dict(goal_tree: GoalTree) -> dict:
-    """GoalTree → YAML 用 dict."""
-    # vision_id → index のマッピング
+    """GoalTree → 用于 YAML 的 dict。"""
+    # vision_id → index 的映射
     vision_ids = [v.id for v in goal_tree.visions]
     objective_ids = [o.id for o in goal_tree.objectives]
 
@@ -121,12 +121,12 @@ def _goals_to_dict(goal_tree: GoalTree) -> dict:
 
 @dataclass
 class CharacterSheet:
-    """YAML ↔ データモデル変換.
+    """YAML ↔ 数据模型转换。
 
-    character: Character (必須)
-    initial_state: EmotionalState (optional)
-    goal_tree: GoalTree (optional)
-    voice_id: str | None (optional)
+    character: Character（必需）
+    initial_state: EmotionalState（可选）
+    goal_tree: GoalTree（可选）
+    voice_id: str | None（可选）
     """
 
     character: Character
@@ -136,7 +136,7 @@ class CharacterSheet:
 
     @classmethod
     def from_yaml(cls, yaml_str: str) -> CharacterSheet:
-        """YAML 文字列からパース."""
+        """从 YAML 字符串解析。"""
         data = yaml.safe_load(yaml_str)
         if not isinstance(data, dict):
             raise ValueError("Invalid YAML: expected a mapping")
@@ -144,13 +144,13 @@ class CharacterSheet:
 
     @classmethod
     def load(cls, path: Path) -> CharacterSheet:
-        """ファイルから読み込み."""
+        """从文件读取。"""
         text = path.read_text(encoding="utf-8")
         return cls.from_yaml(text)
 
     @classmethod
     def load_directory(cls, directory: Path) -> list[CharacterSheet]:
-        """ディレクトリ内の *.character.yaml を一括読み込み."""
+        """批量读取目录内的 *.character.yaml。"""
         sheets = []
         for f in sorted(directory.glob("*.character.yaml")):
             sheets.append(cls.load(f))
@@ -197,12 +197,12 @@ class CharacterSheet:
         )
 
     def to_yaml(self) -> str:
-        """YAML 文字列にシリアライズ."""
+        """序列化为 YAML 字符串。"""
         data = self._to_dict()
         return yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
     def save(self, path: Path) -> None:
-        """ファイルに書き出し."""
+        """写入文件。"""
         path.write_text(self.to_yaml(), encoding="utf-8")
 
     def _to_dict(self) -> dict:
@@ -212,14 +212,14 @@ class CharacterSheet:
             "id": c.id,
         }
 
-        # Optional string fields
+        # 可选的字符串字段
         for field in ("profile", "appearance", "speaking_style",
                       "background", "personality_description", "values_description"):
             val = getattr(c, field)
             if val is not None:
                 data[field] = val
 
-        # Personality
+        # 性格
         p = c.personality
         data["personality"] = {
             "openness": p.openness,
@@ -229,7 +229,7 @@ class CharacterSheet:
             "neuroticism": p.neuroticism,
         }
 
-        # Values
+        # 价值观
         v = c.values
         data["values"] = {
             "self_transcendence": v.self_transcendence,
@@ -238,7 +238,7 @@ class CharacterSheet:
             "conservation": v.conservation,
         }
 
-        # Initial state
+        # 初始状态
         if self.initial_state:
             s = self.initial_state
             data["initial_state"] = {
@@ -249,11 +249,11 @@ class CharacterSheet:
                 "situation": s.situation,
             }
 
-        # Goals
+        # 目标
         if self.goal_tree:
             data["goals"] = _goals_to_dict(self.goal_tree)
 
-        # Voice
+        # 语音
         data["voice_id"] = self.voice_id
 
         return data

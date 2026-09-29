@@ -9,9 +9,19 @@ from pneuma_core.server.config import ServerConfig
 
 
 def main() -> None:
-    """Load configuration from the environment and start the HTTP server."""
+    """Load configuration from the environment and start the HTTP server.
+
+    The uvicorn ``Server`` instance is attached to ``app.state`` so the
+    ``/api/admin/shutdown`` route can request a graceful shutdown over HTTP
+    (see ``scripts/stop_server.sh``).
+    """
     config = ServerConfig.from_env()
-    uvicorn.run(create_app(config), host=config.host, port=config.port)
+    app = create_app(config)
+    server = uvicorn.Server(
+        uvicorn.Config(app, host=config.host, port=config.port)
+    )
+    app.state.uvicorn_server = server
+    server.run()
 
 
 if __name__ == "__main__":

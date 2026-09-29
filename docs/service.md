@@ -97,13 +97,13 @@ BASE=http://localhost:8001
 # 1) 设定我是谁
 curl -X POST $BASE/api/session/start \
   -H 'Content-Type: application/json' \
-  -d '{"user_id":"u1","user_name":"太郎"}'
+  -d '{"user_id":"u1","user_name":"小明"}'
 # → {"session_id":"sess-...","user":{...},"character":{"name":"夏澜",...}}
 
 # 2) 正常对话
 curl -X POST $BASE/api/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message":"最近読んだ本でおすすめある？"}'
+  -d '{"message":"最近读的书里有什么推荐吗？"}'
 # → {"reply":"...","thought":"...","action":null,
 #    "emotion":{"pleasure":..,"arousal":..,"dominance":..,"label":".."},
 #    "system_messages":[]}

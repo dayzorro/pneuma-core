@@ -13,9 +13,9 @@ from pneuma_core.models.todo import TodoItem
 
 @runtime_checkable
 class StorageBackend(Protocol):
-    """全データの統合ストレージインターフェース.
+    """全数据的统一存储接口。
 
-    Character, Memory, Goals, State, ChangeLog の CRUD を提供。
+    提供 Character、Memory、Goals、State、ChangeLog 的 CRUD。
     """
 
     # Character

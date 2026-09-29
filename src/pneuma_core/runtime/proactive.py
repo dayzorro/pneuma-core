@@ -128,33 +128,33 @@ class ProactiveEngine:
     # ------------------------------------------------------------------
 
     async def _generate(self, now: datetime, context: str) -> ProactiveResult:
-        """Ask the LLM whether the character should reach out."""
+        """询问 LLM 角色是否应当主动搭话。"""
         time_str = now.strftime("%Y-%m-%d %H:%M")
 
         context_block = ""
         if context:
-            context_block = f"\n追加コンテキスト:\n{context}\n"
+            context_block = f"\n补充上下文:\n{context}\n"
 
         system_prompt = (
-            f"あなたは「{self._character_id}」です。ユーザーに自分から話しかけるかどうかを判断してください。\n"
+            f"你是「{self._character_id}」。请判断是否要主动向用户搭话。\n"
             f"\n"
-            f"現在時刻: {time_str}\n"
+            f"当前时间: {time_str}\n"
             f"{context_block}\n"
-            f"以下の場合に話しかけてください:\n"
-            f"- 朝の挨拶の時間帯（7-9時）\n"
-            f"- 未完了のTODOがある場合のリマインド\n"
-            f"- 前回の会話から時間が経っている場合の気遣い\n"
-            f"- 特に話したいことがある場合\n"
+            f"在以下情况应当主动搭话:\n"
+            f"- 属于早晨问候的时间段（7-9 点）\n"
+            f"- 有未完成的 TODO 需要提醒\n"
+            f"- 距上次对话已过了一段时间，想要关心一下\n"
+            f"- 有特别想说的话\n"
             f"\n"
-            f"以下のJSON形式で応答してください:\n"
+            f"请按以下 JSON 格式回复（所有文本字段使用简体中文）:\n"
             f'{{\n'
             f'  "should_send": true/false,\n'
-            f'  "message": "送信するメッセージ（should_send=trueの場合）",\n'
-            f'  "reason": "判断理由（ログ用）"\n'
+            f'  "message": "要发送的消息（should_send=true 时）",\n'
+            f'  "reason": "判断理由（用于日志）"\n'
             f'}}\n'
             f"\n"
-            f"話しかけない場合は should_send: false で応答してください。\n"
-            f"無理に話しかける必要はありません。"
+            f"不搭话时请回复 should_send: false。\n"
+            f"没有必要勉强找话说。"
         )
 
         try:

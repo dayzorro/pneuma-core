@@ -1,4 +1,4 @@
-"""Memory consolidation: selective episode extraction from conversations."""
+"""记忆整合：从对话中按重要度抽取情节记忆。"""
 
 from __future__ import annotations
 
@@ -13,31 +13,32 @@ from pneuma_core.memory.store import MemoryStore
 from pneuma_core.models.memory import EpisodicMemory
 
 EXTRACTION_SYSTEM_PROMPT = """\
-あなたは会話からエピソード記憶を抽出するアシスタントです。
-以下の会話履歴を読み、キャラクターにとって記憶すべき重要な出来事を抽出してください。
+你是一个从对话中抽取情节记忆的助手。
+请阅读以下对话历史，抽取角色应当记住的重要事件。
+所有文本字段必须使用简体中文。
 
-出力は JSON 配列で、各要素は以下の形式です:
+输出为 JSON 数组，每个元素格式如下:
 [
   {
-    "content": "記憶する出来事の説明（1〜2文）",
-    "importance": 0.0〜1.0の数値,
-    "emotional_valence": -1.0〜1.0の数値（不快〜快）
+    "content": "所记事件的描述（1〜2 句）",
+    "importance": 0.0〜1.0 的数值,
+    "emotional_valence": -1.0〜1.0 的数值（不悦〜愉悦）
   }
 ]
 
-重要度の基準:
-- 0.9-1.0: 人生を変える出来事、決定的な約束
-- 0.7-0.8: 強く印象に残る、重要情報の開示
-- 0.6: 記憶の最低ライン
-- 0.6未満: 保存しない些細な出来事（含めてよいが重要度を正直に）
+重要度基准:
+- 0.9-1.0: 改变人生的事件、决定性约定
+- 0.7-0.8: 印象强烈、重要信息的披露
+- 0.6: 记忆的最低门槛
+- 低于 0.6: 不必保存的琐碎事件（可保留，但请如实标注重要度）
 
-JSON 配列のみを出力してください。説明文は不要です。
+只输出 JSON 数组，不要任何说明文字。
 """
 
 
 @dataclass(frozen=True)
 class ConsolidationConfig:
-    """Tunable parameters for memory consolidation."""
+    """记忆整合的可调参数。"""
 
     importance_threshold: float = 0.6
     max_episodes_per_conversation: int = 3
@@ -46,7 +47,7 @@ class ConsolidationConfig:
 
 @dataclass
 class ConsolidationResult:
-    """Result of memory consolidation."""
+    """记忆整合的结果。"""
 
     saved: list[EpisodicMemory] = field(default_factory=list)
     filtered_by_importance: int = 0
@@ -55,14 +56,14 @@ class ConsolidationResult:
 
 
 class MemoryConsolidator:
-    """Selective episode extraction and storage engine.
+    """选择性抽取与存储情节记忆的引擎。
 
-    Pipeline:
-        1. LLM extracts episodes from conversation history
-        2. Filter by importance threshold
-        3. Limit quantity (top N by importance)
-        4. Check duplicates against existing memories
-        5. Generate embeddings and save to store
+    流程:
+        1. LLM 从对话历史中抽取情节
+        2. 按重要度阈值过滤
+        3. 限制数量（按重要度取前 N 条）
+        4. 与已有记忆做重复检查
+        5. 生成 embedding 并保存到 store
     """
 
     def __init__(
@@ -86,15 +87,15 @@ class MemoryConsolidator:
         now: datetime,
         conversation_id: str | None = None,
     ) -> ConsolidationResult:
-        """Extract, filter, and save episodic memories from a conversation."""
+        """从对话中抽取、过滤并保存情节记忆。"""
         result = ConsolidationResult()
 
-        # 1. LLM でエピソード抽出
+        # 1. 用 LLM 抽取情节
         raw_episodes = await self._extract_episodes(conversation_history)
         if not raw_episodes:
             return result
 
-        # 2. 重要度フィルタ
+        # 2. 按重要度过滤
         filtered = []
         for ep in raw_episodes:
             if ep["importance"] >= self.config.importance_threshold:
@@ -105,18 +106,18 @@ class MemoryConsolidator:
         if not filtered:
             return result
 
-        # 3. 数量制限（importance 降順で top N）
+        # 3. 数量限制（按 importance 降序取前 N 条）
         filtered.sort(key=lambda x: x["importance"], reverse=True)
         max_n = self.config.max_episodes_per_conversation
         if len(filtered) > max_n:
             result.filtered_by_limit = len(filtered) - max_n
             filtered = filtered[:max_n]
 
-        # 4. Embedding 生成
+        # 4. 生成 Embedding
         contents = [ep["content"] for ep in filtered]
         embeddings = await self.embedding_service.embed_batch(contents)
 
-        # 5. 重複チェック（find_similar_episodic 経由）
+        # 5. 重复检查（经由 find_similar_episodic）
         non_duplicate = []
         for ep, emb in zip(filtered, embeddings):
             similar = await self.store.find_similar_episodic(
@@ -127,7 +128,7 @@ class MemoryConsolidator:
             else:
                 non_duplicate.append((ep, emb))
 
-        # 6. EpisodicMemory 作成と保存
+        # 6. 创建并保存 EpisodicMemory
         for ep, emb in non_duplicate:
             memory = EpisodicMemory(
                 id=f"ep-{uuid.uuid4().hex[:12]}",

@@ -1,4 +1,4 @@
-"""Relation: エンティティ間の関係性モデル."""
+"""Relation：实体间关系模型。"""
 
 from __future__ import annotations
 
@@ -8,19 +8,19 @@ from datetime import datetime
 
 @dataclass
 class Relation:
-    """エンティティ間の関係性.
+    """实体间的关系。
 
-    ユーザー-キャラクター、キャラクター-キャラクター間の関係を表す。
-    owner_id が関係の「主体」、target_id が「相手」。
+    表示用户-角色、角色-角色之间的关系。
+    owner_id 是关系中的「主体」，target_id 是「对方」。
     """
 
     id: str
-    owner_id: str              # 関係の主体 (user, mira, etc.)
-    target_id: str             # 関係の相手
-    target_name: str           # 相手の表示名
+    owner_id: str              # 关系的主体 (user, mira, etc.)
+    target_id: str             # 关系的对方
+    target_name: str           # 对方的显示名
     relationship_type: str     # partner, friend, family, mentor, etc.
-    description: str           # 関係の説明
-    closeness: float           # 親密度 0.0-1.0
-    trust: float               # 信頼度 0.0-1.0
+    description: str           # 关系的说明
+    closeness: float           # 亲密度 0.0-1.0
+    trust: float               # 信任度 0.0-1.0
     updated_at: datetime
-    notes: str | None = None   # 追加メモ
+    notes: str | None = None   # 附加备注

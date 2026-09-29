@@ -220,7 +220,7 @@ class TestRelationsInPrompt:
             char, emotion, GoalTree(), [],
             character_relations=relations,
         )
-        assert "関係性" in prompt
+        assert "关系" in prompt
         assert "きょうへいさん" in prompt
         assert "大切な人" in prompt
 
@@ -242,4 +242,4 @@ class TestRelationsInPrompt:
         emotion = EmotionalState(0.3, 0.1, 0.0, "安らぎ", "穏やかな会話中")
 
         prompt = builder.build(char, emotion, GoalTree(), [])
-        assert "関係性" not in prompt
+        assert "关系" not in prompt

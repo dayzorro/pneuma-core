@@ -1,7 +1,7 @@
-"""UserContextWriter: UserContext ファイル自動更新 (#136).
+"""UserContextWriter：自动更新 UserContext 文件 (#136)。
 
-セッション終了時に LLM が出力した user_context_updates を
-実際のファイルに適用し、git commit する。
+在会话结束时，把 LLM 输出的 user_context_updates
+真正应用到文件上，并执行 git commit。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 許可されたファイル名 / プレフィックス
+# 允许写入的文件名 / 前缀
 _ALLOWED_FILES = {
     "identity.md",
     "values.md",
@@ -24,23 +24,23 @@ _ALLOWED_PREFIXES = ("projects/",)
 
 
 class UserContextWriter:
-    """UserContext ファイルへの更新適用.
+    """把更新应用到 UserContext 文件。
 
-    LLM が出力した user_context_updates (list[dict]) を受け取り、
-    対象ファイルの rewrite / append を実行し、git commit する。
+    接收 LLM 输出的 user_context_updates（list[dict]），
+    对目标文件执行 rewrite / append，并执行 git commit。
     """
 
     def __init__(self, user_context_dir: Path | str) -> None:
         self._dir = Path(user_context_dir)
 
     async def apply(self, updates: list[dict]) -> int:
-        """更新を適用し、成功した件数を返す.
+        """应用更新，返回成功件数。
 
         Args:
-            updates: LLM が出力した user_context_updates リスト。
+            updates: LLM 输出的 user_context_updates 列表。
 
         Returns:
-            適用成功した件数。
+            成功应用的件数。
         """
         if not updates:
             return 0
@@ -54,14 +54,14 @@ class UserContextWriter:
             new_content = update.get("new_content", "")
             reason = update.get("reason", "")
 
-            # ファイルパスのバリデーション
+            # 校验文件路径
             if not self._is_allowed_file(file_name):
                 logger.warning("Skipping disallowed file: %s", file_name)
                 continue
 
             file_path = self._dir / file_name
 
-            # パストラバーサル検出
+            # 检测路径穿越
             try:
                 resolved = file_path.resolve()
                 dir_resolved = self._dir.resolve()
@@ -86,7 +86,7 @@ class UserContextWriter:
                 if reason:
                     reasons.append(reason)
 
-        # Git commit if any updates were applied
+        # 若有更新被应用，则执行 Git commit
         if applied > 0:
             commit_msg = "session-end: " + "; ".join(reasons) if reasons else "session-end: update"
             self._git_commit(commit_msg)
@@ -94,7 +94,7 @@ class UserContextWriter:
         return applied
 
     def _is_allowed_file(self, file_name: str) -> bool:
-        """ファイル名が許可リストに含まれるか."""
+        """判断文件名是否在允许列表中。"""
         if file_name in _ALLOWED_FILES:
             return True
         for prefix in _ALLOWED_PREFIXES:
@@ -105,17 +105,17 @@ class UserContextWriter:
     def _rewrite_section(
         self, file_path: Path, section_header: str, new_content: str,
     ) -> bool:
-        """マークダウンのセクションを書き換える.
+        """重写 markdown 的某个章节。
 
-        セクションが見つからない場合は append にフォールバックする。
+        若找不到该章节，则退化为 append。
 
         Algorithm:
-        1. ファイルを読み込む
-        2. section_header と完全一致する行を探す
-        3. セクションレベル（# の数）を取得
-        4. 次の同レベル以上のヘッダーまたは EOF までがセクション範囲
-        5. ヘッダー + new_content で置換
-        6. ファイルに書き戻す
+        1. 读取文件
+        2. 查找与 section_header 完全一致的行
+        3. 取得章节层级（# 的数量）
+        4. 到下一个同级或更高级标题、或 EOF 为止即为该章节范围
+        5. 用「标题 + new_content」替换
+        6. 写回文件
         """
         if not file_path.exists():
             logger.warning("File not found for rewrite: %s", file_path)
@@ -124,7 +124,7 @@ class UserContextWriter:
         content = file_path.read_text(encoding="utf-8")
         lines = content.split("\n")
 
-        # セクションヘッダーの行を探す
+        # 查找章节标题所在行
         header_line_idx = None
         for i, line in enumerate(lines):
             if line.strip() == section_header.strip():
@@ -132,17 +132,17 @@ class UserContextWriter:
                 break
 
         if header_line_idx is None:
-            # セクションが見つからない → append にフォールバック
+            # 找不到该章节 → 退化为 append
             logger.info(
                 "Section '%s' not found in %s, falling back to append",
                 section_header, file_path.name,
             )
             return self._append_section(file_path, section_header, new_content)
 
-        # セクションレベルを取得
+        # 取得章节层级
         level = self._header_level(section_header)
 
-        # セクション終了位置を探す
+        # 查找章节结束位置
         end_line_idx = len(lines)
         for i in range(header_line_idx + 1, len(lines)):
             line_stripped = lines[i].strip()
@@ -152,10 +152,10 @@ class UserContextWriter:
                     end_line_idx = i
                     break
 
-        # 新しいセクション内容を構築
+        # 构建新的章节内容
         new_section_lines = [section_header, "", new_content, ""]
 
-        # 前後を結合
+        # 拼接前后部分
         before = lines[:header_line_idx]
         after = lines[end_line_idx:]
 
@@ -165,14 +165,14 @@ class UserContextWriter:
         return True
 
     def _append(self, file_path: Path, content: str) -> bool:
-        """ファイル末尾に追記する. ファイルが存在しなければ新規作成."""
+        """在文件末尾追加。文件不存在时则新建。"""
         try:
-            # 親ディレクトリが存在しなければ作成
+            # 父目录不存在则创建
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             if file_path.exists():
                 existing = file_path.read_text(encoding="utf-8")
-                # 末尾に改行がなければ追加
+                # 末尾若无换行则补上
                 if existing and not existing.endswith("\n"):
                     existing += "\n"
                 new_text = existing + "\n" + content + "\n"
@@ -188,12 +188,12 @@ class UserContextWriter:
     def _append_section(
         self, file_path: Path, section_header: str, content: str,
     ) -> bool:
-        """セクションヘッダー付きで末尾に追記する."""
+        """带章节标题地追加到文件末尾。"""
         full_content = f"{section_header}\n\n{content}"
         return self._append(file_path, full_content)
 
     def _git_commit(self, message: str) -> None:
-        """git add + commit を実行する."""
+        """执行 git add + commit。"""
         try:
             subprocess.run(
                 ["git", "add", "."],
@@ -213,7 +213,7 @@ class UserContextWriter:
 
     @staticmethod
     def _header_level(header: str) -> int:
-        """マークダウンヘッダーのレベル（# の数）を返す."""
+        """返回 markdown 标题的层级（# 的数量）。"""
         stripped = header.strip()
         level = 0
         for ch in stripped:
