@@ -76,3 +76,5 @@ class MessageOutput:
     internal_changes: list[ChangeRecord] = field(default_factory=list)
     diagnostic: DiagnosticInfo | None = None
     system_messages: list[SystemMessage] = field(default_factory=list)
+    # 本轮联网检索命中的来源（空列表 = 本轮未联网或没有结果）
+    web_sources: list[dict[str, str]] = field(default_factory=list)

@@ -7,12 +7,24 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pneuma_core.knowledge import DEFAULT_DATA_DIR as DEFAULT_KNOWLEDGE_DIR
+from pneuma_core.websearch.bocha import (
+    DEFAULT_BASE_URL as DEFAULT_BOCHA_BASE_URL,
+    DEFAULT_COUNT as DEFAULT_BOCHA_COUNT,
+    DEFAULT_ENDPOINT as DEFAULT_BOCHA_ENDPOINT,
+    DEFAULT_FRESHNESS as DEFAULT_BOCHA_FRESHNESS,
+)
+from pneuma_core.websearch.policy import (
+    DEFAULT_MODE as DEFAULT_WEB_SEARCH_MODE,
+    normalize_mode,
+)
 
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8001
 DEFAULT_CHARACTER_FILE = "examples/xiaorun-frontdesk.character.yaml"
 DEFAULT_DB_PATH = "vault/pneuma.db"
 DEFAULT_KNOWLEDGE_INDEX = "vault/knowledge_index.json"
+DEFAULT_INSIGHT_STORE = "vault/insights.json"
+DEFAULT_INSIGHT_MAX_PER_TURN = 5
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
@@ -50,6 +62,16 @@ class ServerConfig:
     knowledge_data_dir: Path = DEFAULT_KNOWLEDGE_DIR
     knowledge_index_path: Path = Path(DEFAULT_KNOWLEDGE_INDEX)
     knowledge_top_k: int = 3
+    # 联网检索（博查 AI Search）。api_key 为空 = 关闭联网与认知提炼。
+    bocha_api_key: str = ""
+    bocha_base_url: str = DEFAULT_BOCHA_BASE_URL
+    bocha_endpoint: str = DEFAULT_BOCHA_ENDPOINT
+    bocha_count: int = DEFAULT_BOCHA_COUNT
+    bocha_freshness: str = DEFAULT_BOCHA_FRESHNESS
+    web_search_mode: str = DEFAULT_WEB_SEARCH_MODE
+    # 认知库（联网信息提炼出的行业通识认知块）
+    insight_store_path: Path = Path(DEFAULT_INSIGHT_STORE)
+    insight_max_per_turn: int = DEFAULT_INSIGHT_MAX_PER_TURN
 
     @classmethod
     def from_env(cls) -> ServerConfig:
@@ -100,4 +122,28 @@ class ServerConfig:
                 )
             ),
             knowledge_top_k=int(os.environ.get("PNEUMA_KNOWLEDGE_TOP_K", "3")),
+            bocha_api_key=os.environ.get("PNEUMA_BOCHA_API_KEY", "").strip(),
+            bocha_base_url=os.environ.get(
+                "PNEUMA_BOCHA_BASE_URL", DEFAULT_BOCHA_BASE_URL
+            ),
+            bocha_endpoint=os.environ.get(
+                "PNEUMA_BOCHA_ENDPOINT", DEFAULT_BOCHA_ENDPOINT
+            ),
+            bocha_count=int(
+                os.environ.get("PNEUMA_BOCHA_COUNT", str(DEFAULT_BOCHA_COUNT))
+            ),
+            bocha_freshness=os.environ.get(
+                "PNEUMA_BOCHA_FRESHNESS", DEFAULT_BOCHA_FRESHNESS
+            ),
+            web_search_mode=normalize_mode(
+                os.environ.get("PNEUMA_WEB_SEARCH_MODE", DEFAULT_WEB_SEARCH_MODE)
+            ),
+            insight_store_path=Path(
+                os.environ.get("PNEUMA_INSIGHT_STORE", DEFAULT_INSIGHT_STORE)
+            ),
+            insight_max_per_turn=int(
+                os.environ.get(
+                    "PNEUMA_INSIGHT_MAX_PER_TURN", str(DEFAULT_INSIGHT_MAX_PER_TURN)
+                )
+            ),
         )

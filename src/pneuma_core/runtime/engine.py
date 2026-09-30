@@ -41,7 +41,11 @@ from pneuma_core.runtime.user_context_search import (
     UserContextSearchResult,
 )
 from pneuma_core.runtime.middleware import Middleware, PipelineContext
+from pneuma_core.runtime.insight_acquirer import InsightAcquirer
 from pneuma_core.storage.backend import StorageBackend
+from pneuma_core.websearch.models import WebSearchClient, WebSearchResponse
+from pneuma_core.websearch.policy import DEFAULT_MODE as DEFAULT_WEB_SEARCH_MODE
+from pneuma_core.websearch.policy import should_search_online
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,9 @@ class RuntimeEngine:
         character_relations: list | None = None,
         middlewares: list[Middleware] | None = None,
         knowledge_base: KnowledgeBase | None = None,
+        web_search_client: WebSearchClient | None = None,
+        web_search_mode: str = DEFAULT_WEB_SEARCH_MODE,
+        insight_acquirer: InsightAcquirer | None = None,
     ) -> None:
         self._character_id = character_id
         self._storage = storage
@@ -106,6 +113,12 @@ class RuntimeEngine:
         # 本地知识库（可选）。用于「专业知识问答」：每轮检索后注入提示词。
         self._knowledge_base = knowledge_base
 
+        # 联网检索（可选）：本地资料答不上、且问题指向外部实时信息时启用
+        self._web_search_client = web_search_client
+        self._web_search_mode = web_search_mode
+        # 联网结果的异步提炼器（把实时信息沉淀成行业通识认知块）
+        self._insight_acquirer = insight_acquirer
+
         # User goal tree (optional)
         self._user_goal_tree = user_goal_tree
 
@@ -118,6 +131,8 @@ class RuntimeEngine:
         self._history: list[dict] = []
         self._conversation_summary: str | None = None
         self._pending_emotion_task: asyncio.Task | None = None
+        # 后台的认知提炼任务（联网结果 → 行业认知块）
+        self._insight_tasks: set[asyncio.Task] = set()
         self._latest_emotion: EmotionalState | None = None
         self._turn_count: int = 0
 
@@ -231,11 +246,41 @@ class RuntimeEngine:
                     component="knowledge_search",
                 ))
 
+        # 2.7. 联网检索：本地资料答不上、且问题指向外部实时信息时才走外网
+        web_response: WebSearchResponse | None = None
+        if self._web_search_client is not None and should_search_online(
+            msg.content,
+            mode=self._web_search_mode,
+            has_local_hits=bool(knowledge_hits),
+        ):
+            try:
+                web_response = await self._web_search_client.search(msg.content)
+            except Exception as e:
+                logger.warning(
+                    "Web search failed, continuing without live info: %s: %s",
+                    type(e).__name__,
+                    e,
+                )
+                system_messages.append(SystemMessage(
+                    type="warning",
+                    message="联网检索失败，本轮将不包含实时信息",
+                    component="web_search",
+                ))
+
+            # 检索结果异步提炼成行业认知块，不占用本轮回复的时延
+            if (
+                web_response is not None
+                and not web_response.is_empty
+                and self._insight_acquirer is not None
+            ):
+                self._schedule_insight_acquisition(msg.content, web_response)
+
         # 3. Build system prompt (use PromptCache if available)
         prompt_result = self._build_system_prompt(
             character, current_emotion, goals, memories,
             user_context_search_results=user_context_search_results,
             knowledge_hits=knowledge_hits,
+            web_search=web_response,
         )
         # Extract system_prompt and optional cached/dynamic sections
         if isinstance(prompt_result, CachedPrompt):
@@ -424,6 +469,7 @@ class RuntimeEngine:
             internal_changes=changes,
             diagnostic=diagnostic,
             system_messages=system_messages,
+            web_sources=web_response.sources() if web_response else [],
         )
 
         # Run middleware post_process chain (reverse order for proper nesting)
@@ -446,6 +492,7 @@ class RuntimeEngine:
         memories: list[EpisodicMemory | SemanticMemory],
         user_context_search_results: list[UserContextSearchResult] | None = None,
         knowledge_hits: list[KnowledgeHit] | None = None,
+        web_search: WebSearchResponse | None = None,
     ) -> str | CachedPrompt:
         """Build system prompt using PromptCache or PromptBuilder.
 
@@ -463,6 +510,7 @@ class RuntimeEngine:
                 user_goal_tree=self._user_goal_tree,
                 character_relations=self._character_relations,
                 knowledge_hits=knowledge_hits,
+                web_search=web_search,
             )
         return self._prompt_builder.build(
             character=character,
@@ -474,6 +522,7 @@ class RuntimeEngine:
             user_goal_tree=self._user_goal_tree,
             character_relations=self._character_relations,
             knowledge_hits=knowledge_hits,
+            web_search=web_search,
         )
 
     @staticmethod
@@ -515,10 +564,24 @@ class RuntimeEngine:
                 self._character_id, current_emotion
             )
 
-    async def aclose(self) -> None:
-        """等待仍在进行的情绪评估任务结束（应在会话结束时调用）。
+    def _schedule_insight_acquisition(
+        self, query: str, response: WebSearchResponse
+    ) -> None:
+        """把联网结果丢到后台提炼成行业认知块。
 
-        轮次之间**不会**等待该任务，因此它不会拖慢交互。
+        刻意不 await：提炼要走一次大模型，放在关键路径上会明显拖慢回复。
+        """
+        assert self._insight_acquirer is not None
+        task = asyncio.create_task(
+            self._insight_acquirer.acquire(query, response)
+        )
+        self._insight_tasks.add(task)
+        task.add_done_callback(self._insight_tasks.discard)
+
+    async def aclose(self) -> None:
+        """等待仍在进行的后台任务结束（应在会话结束时调用）。
+
+        轮次之间**不会**等待这些任务，因此它们不会拖慢交互。
         """
         task = self._pending_emotion_task
         if task is not None and not task.done():
@@ -527,6 +590,14 @@ class RuntimeEngine:
             except Exception:
                 logger.warning("Pending emotion task failed")
         self._pending_emotion_task = None
+
+        pending = [t for t in self._insight_tasks if not t.done()]
+        if pending:
+            try:
+                await asyncio.gather(*pending, return_exceptions=True)
+            except Exception:  # noqa: BLE001 - 收尾失败不应影响会话结束
+                logger.warning("Pending insight tasks failed")
+        self._insight_tasks.clear()
 
     async def _generate_streaming(
         self, request: LLMRequest, on_delta: OnDelta

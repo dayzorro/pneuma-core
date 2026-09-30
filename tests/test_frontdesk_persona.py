@@ -14,6 +14,7 @@ from pneuma_core.models.goals import GoalTree
 from pneuma_core.models.personality import Personality
 from pneuma_core.models.values import Values
 from pneuma_core.runtime.prompt_builder import PromptBuilder
+from pneuma_core.websearch.models import WebSearchResponse, WebSearchResult
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 FRONTDESK_YAML = EXAMPLES / "xiaorun-frontdesk.character.yaml"
@@ -230,3 +231,96 @@ class TestDateTime:
         )
 
         assert abs((datetime.now(cst) - parsed).total_seconds()) < 120
+
+
+def _web_response(**kwargs) -> WebSearchResponse:
+    defaults = dict(
+        query="最近零售行业有什么新动向",
+        results=[
+            WebSearchResult(
+                title="零售周报",
+                url="https://example.com/a",
+                site_name="示例网",
+                summary="多家商超调整门店业态，社区店占比提升。",
+                published_at="2026-09-28T00:00:00+08:00",
+            )
+        ],
+    )
+    defaults.update(kwargs)
+    return WebSearchResponse(**defaults)
+
+
+class TestWebSearchSection:
+    def test_renders_live_results(self) -> None:
+        prompt = PromptBuilder().build(
+            _make_character(), EMOTION, GoalTree(), [],
+            web_search=_web_response(),
+        )
+
+        assert "## 联网检索结果（实时）" in prompt
+        assert "【零售周报】" in prompt
+        assert "示例网" in prompt
+        assert "2026-09-28" in prompt
+        assert "社区店占比提升" in prompt
+
+    def test_omitted_without_response(self) -> None:
+        prompt = PromptBuilder().build(_make_character(), EMOTION, GoalTree(), [])
+
+        assert "## 联网检索结果" not in prompt
+
+    def test_omitted_for_empty_response(self) -> None:
+        prompt = PromptBuilder().build(
+            _make_character(), EMOTION, GoalTree(), [],
+            web_search=WebSearchResponse(query="q"),
+        )
+
+        assert "## 联网检索结果" not in prompt
+
+    def test_warns_about_accuracy(self) -> None:
+        prompt = PromptBuilder().build(
+            _make_character(), EMOTION, GoalTree(), [],
+            web_search=_web_response(),
+        )
+
+        assert "不要编造" in prompt
+
+    def test_includes_web_answer_when_present(self) -> None:
+        prompt = PromptBuilder().build(
+            _make_character(), EMOTION, GoalTree(), [],
+            web_search=_web_response(answer="联网总结的结论"),
+        )
+
+        assert "【联网总结】联网总结的结论" in prompt
+
+    def test_limits_result_count(self) -> None:
+        results = [
+            WebSearchResult(title=f"标题{i}", url=f"https://e/{i}", summary="摘要")
+            for i in range(12)
+        ]
+
+        prompt = PromptBuilder().build(
+            _make_character(), EMOTION, GoalTree(), [],
+            web_search=_web_response(results=results),
+        )
+
+        assert "标题4" in prompt
+        assert "标题5" not in prompt
+
+    def test_truncates_long_summary(self) -> None:
+        prompt = PromptBuilder().build(
+            _make_character(), EMOTION, GoalTree(), [],
+            web_search=_web_response(
+                results=[
+                    WebSearchResult(title="长文", url="u", summary="占" * 900)
+                ]
+            ),
+        )
+
+        assert "占" * 301 not in prompt
+
+    def test_dynamic_sections_include_web_results(self) -> None:
+        dynamic = PromptBuilder().build_dynamic_sections(
+            EMOTION, GoalTree(), [], web_search=_web_response()
+        )
+
+        assert "## 联网检索结果（实时）" in dynamic

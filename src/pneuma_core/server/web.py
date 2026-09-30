@@ -114,6 +114,10 @@ INDEX_HTML = """<!DOCTYPE html>
   .msg.char .bubble { border-top-left-radius: 4px; }
   .msg.user .bubble { border-top-right-radius: 4px; }
   .stage { font-size: 12px; color: var(--muted); font-style: italic; }
+  .webinfo { font-size: 12px; color: #1a7f4b; }
+  .webinfo summary { cursor: pointer; outline: none; }
+  .webinfo ul { margin: 4px 0 0; padding-left: 18px; }
+  .webinfo a { color: var(--muted); }
   .extra { font-size: 12px; color: var(--muted); }
   .extra summary { cursor: pointer; outline: none; }
   .extra div { margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--line); }
@@ -186,7 +190,7 @@ const QUICK_QUESTIONS = [
   "买错东西能退吗？",
   "停车怎么收费？",
   "能送货上门吗？",
-  "购物卡过期了怎么办？",
+  "最近零售行业有什么新动向？",
   "我想转人工",
 ];
 
@@ -241,6 +245,33 @@ function attachExtra(wrap, extra) {
   const inner = document.createElement("div");
   inner.textContent = extra;
   d.appendChild(inner);
+  wrap.appendChild(d);
+}
+
+function attachSources(wrap, sources) {
+  if (!sources || !sources.length) return;
+  const d = document.createElement("details");
+  d.className = "webinfo";
+  const summary = document.createElement("summary");
+  summary.textContent = "已联网查询 · " + sources.length + " 条来源";
+  d.appendChild(summary);
+  const ul = document.createElement("ul");
+  sources.forEach((s) => {
+    const li = document.createElement("li");
+    if (s.url) {
+      const a = document.createElement("a");
+      a.href = s.url;
+      a.target = "_blank";
+      a.rel = "noreferrer noopener";
+      a.textContent = s.title || s.url;
+      li.appendChild(a);
+    } else {
+      li.textContent = s.title || "未命名来源";
+    }
+    if (s.site) li.appendChild(document.createTextNode("（" + s.site + "）"));
+    ul.appendChild(li);
+  });
+  d.appendChild(ul);
   wrap.appendChild(d);
 }
 
@@ -369,6 +400,7 @@ async function send() {
     if (!done) throw new Error("连接中断");
     if (!gotDelta) stream.append(done.reply || "");
     stream.setStage(done.action);
+    attachSources(stream.element, done.web_sources);
     const label = done.emotion && done.emotion.label ? done.emotion.label : null;
     attachExtra(stream.element, buildExtra(done.thought, done.action, label));
     (done.system_messages || []).forEach((m) => addSystem(m.message));

@@ -14,6 +14,13 @@ from pneuma_core.models.memory import EpisodicMemory, SemanticMemory
 from pneuma_core.models.relation import Relation
 from pneuma_core.runtime.user_context import UserContext
 from pneuma_core.runtime.user_context_search import UserContextSearchResult
+from pneuma_core.websearch.models import WebSearchResponse
+
+# 每条联网结果注入提示词时的字数上限（控制提示词体积）
+_WEB_RESULT_MAX_CHARS = 300
+
+# 最多注入多少条联网结果
+_WEB_RESULT_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -153,6 +160,7 @@ class PromptBuilder:
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
         knowledge_hits: list[KnowledgeHit] | None = None,
+        web_search: WebSearchResponse | None = None,
     ) -> str:
         """由多路上下文 + 用户上下文构建完整的 system prompt。"""
         sections = [
@@ -174,6 +182,7 @@ class PromptBuilder:
                 character_tasks=character_tasks,
             ),
             self._build_knowledge_section(knowledge_hits),
+            self._build_web_search_section(web_search),
             self._build_datetime_section(),
             self._build_state_section(emotional_state),
             self._build_speaking_style_section(character),
@@ -224,8 +233,9 @@ class PromptBuilder:
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
         knowledge_hits: list[KnowledgeHit] | None = None,
+        web_search: WebSearchResponse | None = None,
     ) -> str:
-        """构建动态区段（用户上下文 Tier 2+3、记忆、目标、任务、知识库、情绪状态）。
+        """构建动态区段（用户上下文 Tier 2+3、记忆、目标、任务、知识库、联网、情绪状态）。
 
         这些区段每轮对话都会变化，需要每次重建。
         """
@@ -245,6 +255,7 @@ class PromptBuilder:
                 character_tasks=character_tasks,
             ),
             self._build_knowledge_section(knowledge_hits),
+            self._build_web_search_section(web_search),
             self._build_datetime_section(),
             self._build_state_section(emotional_state),
         ]
@@ -474,6 +485,43 @@ class PromptBuilder:
         for hit in hits:
             content = hit.chunk.content.strip().replace("\n", " ")
             lines.append(f"- 【{hit.chunk.title}】{content}")
+        return "\n".join(lines)
+
+    def _build_web_search_section(
+        self, response: WebSearchResponse | None
+    ) -> str:
+        """由联网检索结果构建实时信息区段。
+
+        没有结果时不生成区段；有结果时明确告知「可能不准确」，
+        避免模型把网页摘要当成权威事实。
+        """
+        if response is None or response.is_empty:
+            return ""
+
+        lines = [
+            "## 联网检索结果（实时）",
+            "以下是为对方的问题刚刚检索到的公开网页信息，权威性与时效性不一，仅供参考：",
+        ]
+
+        for result in response.results[:_WEB_RESULT_LIMIT]:
+            text = result.best_text()[:_WEB_RESULT_MAX_CHARS]
+            if not text:
+                continue
+            meta = "，".join(
+                part
+                for part in (result.site_name, result.published_at[:10] if result.published_at else "")
+                if part
+            )
+            prefix = f"（{meta}）" if meta else ""
+            lines.append(f"- 【{result.title or '未命名来源'}】{prefix}{text}")
+
+        if response.answer:
+            lines.append(f"- 【联网总结】{response.answer[:_WEB_RESULT_MAX_CHARS]}")
+
+        lines.append(
+            "说明：这些信息可以自然地用起来（例如「我刚帮您查了一下」），"
+            "但没查到的部分依然不要编造。"
+        )
         return "\n".join(lines)
 
     @staticmethod

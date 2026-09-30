@@ -11,16 +11,23 @@ from typing import Any
 
 from pneuma_core.character_sheet import CharacterSheet
 from pneuma_core.knowledge.index import KnowledgeIndex
+from pneuma_core.knowledge.insights import (
+    InsightKnowledgeBase,
+    InsightStore,
+    MergedKnowledgeBase,
+)
 from pneuma_core.knowledge.retriever import KnowledgeBase
 from pneuma_core.llm.embedding import OpenAIEmbeddingService
 from pneuma_core.llm.openai_compat import OpenAICompatAdapter
 from pneuma_core.models.message import MessageInput, MessageOutput
 from pneuma_core.runtime.engine import RuntimeEngine
+from pneuma_core.runtime.insight_acquirer import InsightAcquirer
 from pneuma_core.runtime.prompt_cache import PromptCache
 from pneuma_core.runtime.session import ConversationSession
 from pneuma_core.runtime.session_end_pipeline import SessionEndPipeline
 from pneuma_core.server.config import ServerConfig
 from pneuma_core.storage.sqlite import SQLiteStorageBackend
+from pneuma_core.websearch.bocha import BochaSearchClient
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +63,12 @@ class ChatService:
         self._sheet: CharacterSheet | None = None
         self._engine: RuntimeEngine | None = None
         self._session: ConversationSession | None = None
-        self._knowledge_base: KnowledgeBase | None = None
+        self._knowledge: Any = None
+        self._curated_chunks: int = 0
+        self._insight_store: InsightStore | None = None
+        self._insight_kb: InsightKnowledgeBase | None = None
+        self._web_search: BochaSearchClient | None = None
+        self._insight_acquirer: InsightAcquirer | None = None
         self._user_id: str = ""
         self._user_name: str = ""
 
@@ -81,7 +93,8 @@ class ChatService:
         ):
             await self._storage.save_emotional_state(character.id, sheet.initial_state)
 
-        self._knowledge_base = self._load_knowledge_base()
+        self._setup_knowledge()
+        self._setup_web_search()
 
         logger.info(
             "Chat service ready (character=%s, db=%s)",
@@ -89,7 +102,71 @@ class ChatService:
             self._config.db_path,
         )
 
-    # ── Knowledge base ───────────────────────────────────────────────────
+    # ── Knowledge bases ──────────────────────────────────────────────────
+
+    def _setup_knowledge(self) -> None:
+        """装配「人工资料库 + 认知库」的统一检索入口。"""
+        curated = self._load_knowledge_base()
+        if curated is not None:
+            self._curated_chunks = curated.size
+
+        self._insight_store = InsightStore(
+            self._config.insight_store_path,
+            embedding_service=self._embedding,
+        )
+        self._insight_store.load()
+        self._insight_kb = InsightKnowledgeBase(
+            self._insight_store,
+            embedding_service=self._embedding,
+            top_k=self._config.knowledge_top_k,
+        )
+        if self._insight_store.size:
+            logger.info("Insight store ready (%d blocks)", self._insight_store.size)
+
+        bases = [b for b in (curated, self._insight_kb) if b is not None]
+        if not bases:
+            self._knowledge = None
+            logger.info("Knowledge disabled (no documents and no insight store)")
+            return
+
+        self._knowledge = MergedKnowledgeBase(
+            bases, top_k=self._config.knowledge_top_k
+        )
+        logger.info(
+            "Knowledge ready (curated=%d, insights=%d, top_k=%d)",
+            self._curated_chunks,
+            self._insight_store.size,
+            self._config.knowledge_top_k,
+        )
+
+    def _setup_web_search(self) -> None:
+        """装配联网检索与认知提炼（未配置 API Key 时整体关闭）。"""
+        if not self._config.bocha_api_key:
+            logger.info(
+                "Web search disabled (PNEUMA_BOCHA_API_KEY is not set); "
+                "insight acquisition follows"
+            )
+            return
+
+        self._web_search = BochaSearchClient(
+            self._config.bocha_api_key,
+            base_url=self._config.bocha_base_url,
+            endpoint=self._config.bocha_endpoint,
+            count=self._config.bocha_count,
+            freshness=self._config.bocha_freshness,
+        )
+        assert self._insight_store is not None  # _setup_knowledge 必定已创建
+        self._insight_acquirer = InsightAcquirer(
+            llm=self._llm,
+            store=self._insight_store,
+            model=self._config.llm_model,
+            max_insights=self._config.insight_max_per_turn,
+        )
+        logger.info(
+            "Web search ready (endpoint=%s, mode=%s)",
+            self._web_search.endpoint_url,
+            self._config.web_search_mode,
+        )
 
     def _load_knowledge_base(self) -> KnowledgeBase | None:
         """加载本地知识库。
@@ -201,7 +278,10 @@ class ChatService:
             history_limit=self._config.history_limit,
             diagnostic_mode=self._config.diagnostic_mode,
             prompt_cache=PromptCache(),
-            knowledge_base=self._knowledge_base,
+            knowledge_base=self._knowledge,
+            web_search_client=self._web_search,
+            web_search_mode=self._config.web_search_mode,
+            insight_acquirer=self._insight_acquirer,
         )
         return {
             "session_id": self._session.session_id,
@@ -231,6 +311,7 @@ class ChatService:
                 {"type": m.type, "message": m.message, "component": m.component}
                 for m in output.system_messages
             ],
+            "web_sources": output.web_sources,
         }
 
     def _record_turn(self, message: str, output: MessageOutput) -> None:
@@ -386,6 +467,12 @@ class ChatService:
             "memory_counts": {
                 "episodic": len(episodic),
                 "semantic": len(semantic),
+            },
+            "knowledge": {
+                "curated_chunks": self._curated_chunks,
+                "insights": self._insight_store.size if self._insight_store else 0,
+                "web_search_enabled": self._web_search is not None,
+                "web_search_mode": self._config.web_search_mode,
             },
             "relations": [
                 {

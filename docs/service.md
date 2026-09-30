@@ -67,6 +67,30 @@ cp .env.example .env
 > 不会在启动阶段调用 embedding 接口。索引模型与 `PNEUMA_EMBEDDING_MODEL` 不一致时
 > 会自动降级为关键词检索，并在日志中给出提示。
 
+### 联网检索（博查 AI Search）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PNEUMA_BOCHA_API_KEY` | 未设置 | 博查 API Key。**留空 = 关闭联网，同时关闭认知提炼** |
+| `PNEUMA_BOCHA_BASE_URL` | `https://api.bocha.cn` | 接口域名 |
+| `PNEUMA_BOCHA_ENDPOINT` | `/v1/ai-search` | 接口端点。AI Search 需单独开通；返回 401「无接口调用权限」时改用 `/v1/web-search` |
+| `PNEUMA_BOCHA_COUNT` | `8` | 每次返回的结果条数（1〜50） |
+| `PNEUMA_BOCHA_FRESHNESS` | `noLimit` | 时间范围：`noLimit` / `oneDay` / `oneWeek` / `oneMonth` / `oneYear` / `YYYY-MM-DD..YYYY-MM-DD` |
+| `PNEUMA_BOCHA_TIMEOUT` | `20` | 单次请求超时（秒） |
+| `PNEUMA_WEB_SEARCH_MODE` | `auto` | `auto`=本地没命中且问题指向外部实时信息才联网；`always`=每轮都联网；`off`=不联网 |
+
+申请 Key：<https://open.bochaai.com/>
+
+> 联网失败（超时、配额、鉴权）不会中断对话：本轮不带实时信息继续，并在
+> `system_messages` 里给出提示。
+
+### 认知库
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PNEUMA_INSIGHT_STORE` | `vault/insights.json` | 认知块存储路径（联网结果异步提炼而来） |
+| `PNEUMA_INSIGHT_MAX_PER_TURN` | `5` | 单轮最多提炼多少条认知块 |
+
 ### 行为调优
 
 | 变量 | 默认值 | 说明 |
@@ -97,6 +121,9 @@ python -m pneuma_core.server
 
 也可以用仓库自带的脚本后台启动：`./scripts/start_server.sh`（`--fg` 前台调试）。
 
+要启用联网检索，在 `.env` 里填上 `PNEUMA_BOCHA_API_KEY` 即可（留空则该能力整体关闭，
+对话与本地知识库不受影响）。
+
 启动后访问 Web 界面：<http://localhost:8001/>，API 文档：<http://localhost:8001/docs>
 
 ---
@@ -110,7 +137,7 @@ python -m pneuma_core.server
 | `POST` | `/api/session/start` | **设定「我是谁」** 并开启会话 |
 | `POST` | `/api/chat` | 发送一条消息，获取回复 |
 | `POST` | `/api/session/end` | 结束会话并整合记忆 |
-| `GET` | `/api/state` | 当前情感 / 记忆数量 / 关系性 |
+| `GET` | `/api/state` | 当前情感 / 记忆数量 / 关系性 / 知识库与联网状态 |
 
 ### 完整交互示例
 
@@ -149,7 +176,8 @@ curl -X POST $BASE/api/session/end
 | `thought` | 角色的内心独白（模型的 `thought`） |
 | `action` | 角色的动作（模型的 `action`） |
 | `emotion` | 本轮的情感（PAD + 离散标签）；非诊断模式下为**本轮开始时**的状态 |
-| `system_messages` | 降级提示，例如记忆检索失败、LLM 调用失败等 |
+| `web_sources` | 本轮联网检索命中的来源 `[{title, url, site}]`；未联网或没有结果时为空数组 |
+| `system_messages` | 降级提示，例如记忆检索失败、联网失败、LLM 调用失败等 |
 
 ### 错误码
 
@@ -186,9 +214,16 @@ src/pneuma_core/knowledge/
 ├── chunker.py    # Markdown → 知识块
 ├── index.py      # 向量索引构建与落盘
 ├── retriever.py  # KnowledgeBase：向量检索 + 关键词兜底
+├── insights.py   # 认知库：InsightStore / InsightKnowledgeBase / MergedKnowledgeBase
 └── data/huarun/  # 随仓库分发的华润万家语料
 
-scripts/build_knowledge_index.py  # 离线构建向量索引
+src/pneuma_core/websearch/
+├── models.py     # WebSearchResult / WebSearchResponse / WebSearchClient 协议
+├── bocha.py      # BochaSearchClient（博查 AI Search）
+└── policy.py     # 联网时机判定（auto / always / off）
+
+src/pneuma_core/runtime/insight_acquirer.py  # 联网结果 → 行业认知块的异步提炼
+scripts/build_knowledge_index.py             # 离线构建向量索引
 ```
 
 相关适配器：

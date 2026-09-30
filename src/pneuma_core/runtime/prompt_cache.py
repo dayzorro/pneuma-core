@@ -13,6 +13,7 @@ from pneuma_core.models.relation import Relation
 from pneuma_core.runtime.prompt_builder import PromptBuilder, UserContextConfig
 from pneuma_core.runtime.user_context import UserContext
 from pneuma_core.runtime.user_context_search import UserContextSearchResult
+from pneuma_core.websearch.models import WebSearchResponse
 
 
 @dataclass
@@ -58,6 +59,7 @@ class PromptCache:
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
         knowledge_hits: list[KnowledgeHit] | None = None,
+        web_search: WebSearchResponse | None = None,
     ) -> CachedPrompt:
         """Build a CachedPrompt with static/dynamic separation."""
         static = self._get_or_build_static(
@@ -77,6 +79,7 @@ class PromptCache:
             user_tasks=user_tasks,
             character_tasks=character_tasks,
             knowledge_hits=knowledge_hits,
+            web_search=web_search,
         )
         return CachedPrompt(static_section=static, dynamic_section=dynamic)
 
@@ -123,6 +126,7 @@ class PromptCache:
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
         knowledge_hits: list[KnowledgeHit] | None = None,
+        web_search: WebSearchResponse | None = None,
     ) -> str:
         """Build dynamic sections (always rebuilt)."""
         return self._builder.build_dynamic_sections(
@@ -135,4 +139,5 @@ class PromptCache:
             user_tasks=user_tasks,
             character_tasks=character_tasks,
             knowledge_hits=knowledge_hits,
+            web_search=web_search,
         )
