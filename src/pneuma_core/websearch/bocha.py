@@ -14,16 +14,28 @@
       "stream": false
     }
 
-返回体以 Bing Search API 的格式为基底：网页结果在 ``webPages.value`` 里
-（name / url / snippet / summary / siteName / siteIcon / datePublished），
-AI Search 还会额外返回垂直领域模态卡与大模型总结。
+**两个端点的返回结构不一样**，解析层做了统一（见 ``_parse``）：
 
-说明：``/v1/ai-search`` 可能需要单独开通权限；若返回 401 且提示
-「无接口调用权限」，把 ``PNEUMA_BOCHA_ENDPOINT`` 换成 ``/v1/web-search`` 即可。
+``/v1/web-search``（Bing 兼容，结果套在 ``data`` 里）::
+
+    {"code":200,"data":{"webPages":{"value":[{name,url,snippet,summary,siteName,...}]}}}
+
+``/v1/ai-search``（网页被塞进 ``messages`` 里，content 是字符串化的 JSON）::
+
+    {"code":200,"messages":[
+        {"type":"source","content_type":"webpage","content":"{\"value\":[...]}"},
+        {"type":"source","content_type":"image","content":"{\"value\":[...]}"},
+        {"type":"answer","content_type":"text","content":"大模型总结"},
+        {"type":"follow_up","content_type":"text","content":"[\"追问1\"]"}
+    ]}
+
+AI Search 需要单独开通权限；若返回 401 且提示「无接口调用权限」，
+把 ``PNEUMA_BOCHA_ENDPOINT`` 换成 ``/v1/web-search`` 即可。
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -39,6 +51,11 @@ DEFAULT_ENDPOINT = "/v1/ai-search"
 DEFAULT_COUNT = 8
 DEFAULT_FRESHNESS = "noLimit"
 DEFAULT_TIMEOUT = 20.0
+# 是否让博查再返回一份大模型总结（多一次其侧调用；默认关，由前台自己综合）
+DEFAULT_ANSWER = False
+
+# 结果条数上限（接口允许 1〜50）
+MAX_RESULTS = 50
 
 # freshness 允许的取值
 _VALID_FRESHNESS = frozenset(
@@ -50,9 +67,55 @@ class WebSearchError(RuntimeError):
     """联网检索失败（网络、鉴权、配额、权限等）。"""
 
 
+def _maybe_json(value: Any) -> Any:
+    """博查 messages 里的 content 是字符串化的 JSON，这里做兼容解析。"""
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        return None
+
+
+def _pages_from_web_pages(node: Any) -> list[WebSearchResult]:
+    """从 ``webPages``（或只含 ``value`` 的同形结构）里取出网页结果。"""
+    if not isinstance(node, dict):
+        return []
+    value = node.get("value")
+    if not isinstance(value, list):
+        return []
+
+    results: list[WebSearchResult] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        result = WebSearchResult.from_bocha(item)
+        if result.title or result.url:
+            results.append(result)
+    return results
+
+
+def _dedupe(results: list[WebSearchResult]) -> list[WebSearchResult]:
+    """按 URL 去重，保持原有顺序。"""
+    seen: set[str] = set()
+    unique: list[WebSearchResult] = []
+    for result in results:
+        key = result.url or result.title
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(result)
+    return unique
+
+
 def _extract_answer(data: dict[str, Any]) -> str | None:
     """从返回体里提取大模型总结（不同版本字段名不一致，做兼容）。"""
-    for key in ("answer", "summary", "aiAnswer"):
+    for key in ("answer", "aiAnswer", "summary"):
         value = data.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -60,28 +123,7 @@ def _extract_answer(data: dict[str, Any]) -> str | None:
             text = value.get("text") or value.get("content")
             if isinstance(text, str) and text.strip():
                 return text.strip()
-
-    # 部分版本放在 messages 里
-    messages = data.get("messages")
-    if isinstance(messages, list):
-        for item in reversed(messages):
-            if not isinstance(item, dict):
-                continue
-            if item.get("role") not in ("assistant", None):
-                continue
-            content = item.get("content")
-            if isinstance(content, str) and content.strip():
-                return content.strip()
     return None
-
-
-def _extract_cards(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """提取模态卡（天气卡/百科卡等），字段名做兼容。"""
-    for key in ("modalityCards", "modality_cards", "cards"):
-        value = data.get(key)
-        if isinstance(value, list):
-            return [c for c in value if isinstance(c, dict)]
-    return []
 
 
 class BochaSearchClient:
@@ -95,6 +137,7 @@ class BochaSearchClient:
         endpoint: str = DEFAULT_ENDPOINT,
         count: int = DEFAULT_COUNT,
         freshness: str = DEFAULT_FRESHNESS,
+        answer: bool = DEFAULT_ANSWER,
         timeout: float = DEFAULT_TIMEOUT,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -105,6 +148,7 @@ class BochaSearchClient:
         self._endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         self._count = max(1, min(50, count))
         self._freshness = freshness
+        self._answer = answer
         self._timeout = timeout
         self._client = http_client
         self._owns_client = http_client is None
@@ -121,6 +165,8 @@ class BochaSearchClient:
             endpoint=os.environ.get("PNEUMA_BOCHA_ENDPOINT", DEFAULT_ENDPOINT),
             count=int(os.environ.get("PNEUMA_BOCHA_COUNT", str(DEFAULT_COUNT))),
             freshness=os.environ.get("PNEUMA_BOCHA_FRESHNESS", DEFAULT_FRESHNESS),
+            answer=os.environ.get("PNEUMA_BOCHA_ANSWER", "").strip().lower()
+            in {"1", "true", "yes", "on"},
             timeout=float(os.environ.get("PNEUMA_BOCHA_TIMEOUT", str(DEFAULT_TIMEOUT))),
         )
 
@@ -148,8 +194,7 @@ class BochaSearchClient:
             "query": query,
             "freshness": freshness or self._freshness,
             "count": count or self._count,
-            # 前台只需要参考源，不需要博查再套一层大模型总结（省时省钱）
-            "answer": False,
+            "answer": self._answer,
             "stream": False,
         }
         headers = {
@@ -173,6 +218,11 @@ class BochaSearchClient:
             raise WebSearchError(f"联网检索返回体不是合法 JSON：{e}") from e
         if not isinstance(data, dict):
             raise WebSearchError("联网检索返回体结构异常")
+
+        code = data.get("code")
+        if isinstance(code, int) and code != 200:
+            message = data.get("msg") or data.get("message") or "无详细信息"
+            raise WebSearchError(f"联网检索业务错误码 {code}：{message}")
 
         return self._parse(query, data)
 
@@ -222,25 +272,60 @@ class BochaSearchClient:
 
     @staticmethod
     def _parse(query: str, data: dict[str, Any]) -> WebSearchResponse:
-        web_pages = data.get("webPages")
-        raw_values: list[Any] = []
-        if isinstance(web_pages, dict):
-            value = web_pages.get("value")
-            if isinstance(value, list):
-                raw_values = value
+        """把两种端点的返回体统一成 WebSearchResponse。"""
+        results: list[WebSearchResult] = []
+        cards: list[dict[str, Any]] = []
+        answer: str | None = None
 
-        results = [
-            WebSearchResult.from_bocha(item)
-            for item in raw_values
-            if isinstance(item, dict)
-        ]
-        results = [r for r in results if r.title or r.url]
+        # web-search 把结果套在 data 里；ai-search 直接放在顶层
+        body = data.get("data") if isinstance(data.get("data"), dict) else data
+
+        results.extend(_pages_from_web_pages(body.get("webPages")))
+        images = body.get("images")
+        if isinstance(images, dict) and images.get("value"):
+            cards.append({"content_type": "image", "value": images["value"]})
+
+        # ai-search：网页 / 图片 / 总结 / 追问都在 messages 里
+        messages = data.get("messages")
+        if isinstance(messages, list):
+            for item in messages:
+                if not isinstance(item, dict):
+                    continue
+                kind = item.get("type")
+                content = item.get("content")
+
+                if kind == "source":
+                    payload = _maybe_json(content)
+                    if not isinstance(payload, dict):
+                        continue
+                    if item.get("content_type") == "webpage":
+                        results.extend(_pages_from_web_pages(payload))
+                    elif payload.get("value"):
+                        cards.append(
+                            {
+                                "content_type": item.get("content_type"),
+                                "value": payload["value"],
+                            }
+                        )
+                elif kind == "answer":
+                    text = content if isinstance(content, str) else None
+                    if text and text.strip():
+                        answer = answer or text.strip()
+                elif kind == "follow_up":
+                    questions = _maybe_json(content)
+                    if isinstance(questions, list) and questions:
+                        cards.append(
+                            {"content_type": "follow_up", "value": questions}
+                        )
+
+        # 兜底：有的版本把总结放在顶层
+        if answer is None:
+            answer = _extract_answer(data)
+
+        results = _dedupe(results)[:MAX_RESULTS]
 
         return WebSearchResponse(
-            query=query,
-            results=results,
-            cards=_extract_cards(data),
-            answer=_extract_answer(data),
+            query=query, results=results, cards=cards, answer=answer
         )
 
 

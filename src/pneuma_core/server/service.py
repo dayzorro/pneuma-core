@@ -154,6 +154,7 @@ class ChatService:
             endpoint=self._config.bocha_endpoint,
             count=self._config.bocha_count,
             freshness=self._config.bocha_freshness,
+            answer=self._config.bocha_answer,
         )
         assert self._insight_store is not None  # _setup_knowledge 必定已创建
         self._insight_acquirer = InsightAcquirer(
@@ -473,6 +474,9 @@ class ChatService:
                 "insights": self._insight_store.size if self._insight_store else 0,
                 "web_search_enabled": self._web_search is not None,
                 "web_search_mode": self._config.web_search_mode,
+                "web_search_endpoint": (
+                    self._web_search.endpoint_url if self._web_search else None
+                ),
             },
             "relations": [
                 {

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pneuma_core.knowledge import DEFAULT_DATA_DIR as DEFAULT_KNOWLEDGE_DIR
 from pneuma_core.websearch.bocha import (
+    DEFAULT_ANSWER as DEFAULT_BOCHA_ANSWER,
     DEFAULT_BASE_URL as DEFAULT_BOCHA_BASE_URL,
     DEFAULT_COUNT as DEFAULT_BOCHA_COUNT,
     DEFAULT_ENDPOINT as DEFAULT_BOCHA_ENDPOINT,
@@ -68,6 +69,7 @@ class ServerConfig:
     bocha_endpoint: str = DEFAULT_BOCHA_ENDPOINT
     bocha_count: int = DEFAULT_BOCHA_COUNT
     bocha_freshness: str = DEFAULT_BOCHA_FRESHNESS
+    bocha_answer: bool = DEFAULT_BOCHA_ANSWER
     web_search_mode: str = DEFAULT_WEB_SEARCH_MODE
     # 认知库（联网信息提炼出的行业通识认知块）
     insight_store_path: Path = Path(DEFAULT_INSIGHT_STORE)
@@ -135,6 +137,7 @@ class ServerConfig:
             bocha_freshness=os.environ.get(
                 "PNEUMA_BOCHA_FRESHNESS", DEFAULT_BOCHA_FRESHNESS
             ),
+            bocha_answer=_env_bool("PNEUMA_BOCHA_ANSWER", DEFAULT_BOCHA_ANSWER),
             web_search_mode=normalize_mode(
                 os.environ.get("PNEUMA_WEB_SEARCH_MODE", DEFAULT_WEB_SEARCH_MODE)
             ),

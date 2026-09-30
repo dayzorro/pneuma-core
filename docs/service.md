@@ -77,6 +77,7 @@ cp .env.example .env
 | `PNEUMA_BOCHA_COUNT` | `8` | 每次返回的结果条数（1〜50） |
 | `PNEUMA_BOCHA_FRESHNESS` | `noLimit` | 时间范围：`noLimit` / `oneDay` / `oneWeek` / `oneMonth` / `oneYear` / `YYYY-MM-DD..YYYY-MM-DD` |
 | `PNEUMA_BOCHA_TIMEOUT` | `20` | 单次请求超时（秒） |
+| `PNEUMA_BOCHA_ANSWER` | `false` | 是否让博查额外返回一份它生成的总结。`false`=只取原始网页摘要（由角色自己综合）；`true`=多一份现成总结，回答更直接 |
 | `PNEUMA_WEB_SEARCH_MODE` | `auto` | `auto`=本地没命中且问题指向外部实时信息才联网；`always`=每轮都联网；`off`=不联网 |
 
 申请 Key：<https://open.bochaai.com/>
