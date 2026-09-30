@@ -27,6 +27,11 @@ class LLMRequest:
     max_tokens: int = 1024
     system_prompt_cached: str | None = None
     system_prompt_dynamic: str | None = None
+    # 是否允许模型进行隐式推理（thinking）。
+    #   None  = 由适配器默认策略决定
+    #   False = 强制关闭思考（快，适合每轮对话/情绪评估）
+    #   True  = 保留思考（慢但更深，适合会话结束的深度整合）
+    enable_thinking: bool | None = None
 
     def __post_init__(self) -> None:
         _validate_temperature(self.temperature)

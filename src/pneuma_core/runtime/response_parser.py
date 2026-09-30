@@ -6,11 +6,95 @@ Follows the same JSON parsing pattern as diary_processor._parse_json_response.
 from __future__ import annotations
 
 import json
+import re
 
 from pneuma_core.models.message import StructuredResponse
 
 # Keys that identify a structured response
 _STRUCTURED_KEYS = frozenset({"speech", "thought", "action"})
+
+# 匹配 "speech" 键及其后的起始引号
+_SPEECH_KEY_RE = re.compile(r'"speech"\s*:\s*"')
+
+# JSON 字符串中的简单转义
+_ESCAPES = {
+    "n": "\n",
+    "t": "\t",
+    "r": "\r",
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    "b": "\b",
+    "f": "\f",
+}
+
+
+def extract_partial_speech(buffer: str) -> str:
+    """从（可能不完整的）流式 JSON 缓冲区中提取 speech 字段的当前值。
+
+    用于流式输出：模型按 ``{"speech": "...", ...}`` 的 JSON 逐个 token 生成，
+    本函数在任意时刻安全地取出已经生成的那部分 speech 文本（含转义与
+    不完整的 ``\\uXXXX`` 处理）。
+
+    当缓冲区明显不是 JSON（纯文本兜底回复）时，直接返回原文以支持流式。
+
+    Args:
+        buffer: 目前已累积的原始输出。
+
+    Returns:
+        当前可用的 speech 文本（可能为空字符串）。
+    """
+    text = buffer
+
+    # 去掉可能的前导 markdown 代码围栏
+    stripped = text.lstrip()
+    if stripped.startswith("```"):
+        nl = stripped.find("\n")
+        if nl == -1:
+            return ""
+        offset = len(text) - len(stripped)
+        text = text[offset + nl + 1:]
+
+    # 纯文本兜底：首个非空白字符既不是 { 也不是 ` 时，按原文流式输出
+    head = text.lstrip()[:1]
+    if head and head not in "{`":
+        return text
+
+    if "{" not in text:
+        # 还没开始 JSON，继续等待
+        return ""
+
+    match = _SPEECH_KEY_RE.search(text)
+    if not match:
+        return ""
+
+    out: list[str] = []
+    i = match.end()
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            if i + 1 >= n:
+                break  # 转义序列尚未到达
+            nxt = text[i + 1]
+            if nxt == "u":
+                if i + 6 > n:
+                    break  # \uXXXX 不完整
+                try:
+                    out.append(chr(int(text[i + 2:i + 6], 16)))
+                except ValueError:
+                    break
+                i += 6
+                continue
+            out.append(_ESCAPES.get(nxt, nxt))
+            i += 2
+            continue
+        if ch == '"':
+            break  # speech 字符串结束
+        out.append(ch)
+        i += 1
+
+    return "".join(out)
 
 
 def parse_structured_response(raw: str) -> StructuredResponse:

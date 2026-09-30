@@ -202,6 +202,8 @@ class SessionEndPipeline:
             model=self._model,
             temperature=0.3,
             max_tokens=2048,
+            # 会话结束的记忆整合不在交互关键路径上，保留深度思考以提升质量
+            enable_thinking=True,
         )
 
         response = await self._llm.generate(request)

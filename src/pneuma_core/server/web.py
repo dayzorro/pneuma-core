@@ -180,6 +180,38 @@ function addSystem(text) {
   $("log").scrollTop = $("log").scrollHeight;
 }
 
+function startStreamingMessage() {
+  const wrap = document.createElement("div");
+  wrap.className = "msg char";
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = $("charName").textContent;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  wrap.append(who, bubble);
+  $("log").appendChild(wrap);
+  $("log").scrollTop = $("log").scrollHeight;
+  return {
+    append(t) {
+      bubble.textContent += t;
+      $("log").scrollTop = $("log").scrollHeight;
+    },
+    attachExtra(extra) {
+      if (!extra) return;
+      const d = document.createElement("details");
+      d.className = "extra";
+      d.innerHTML = "<summary>查看内心</summary>";
+      const inner = document.createElement("div");
+      inner.textContent = extra;
+      d.appendChild(inner);
+      wrap.appendChild(d);
+    },
+    remove() {
+      wrap.remove();
+    },
+  };
+}
+
 async function start() {
   const name = $("userName").value.trim();
   if (!name) return $("userName").focus();
@@ -205,19 +237,54 @@ async function send() {
   addMessage("user", text);
   $("sendBtn").disabled = true;
   $("typing").style.display = "block";
+  const stream = startStreamingMessage();
+  let gotDelta = false;
   try {
-    const r = await api("/api/chat", { message: text });
+    const res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!res.ok || !res.body) throw new Error("HTTP " + res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let done = null;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\\n\\n")) >= 0) {
+        const raw = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!raw.startsWith("data:")) continue;
+        const evt = JSON.parse(raw.slice(5).trim());
+        if (evt.type === "delta") {
+          $("typing").style.display = "none";
+          gotDelta = true;
+          stream.append(evt.text);
+        } else if (evt.type === "done") {
+          done = evt;
+        } else if (evt.type === "error") {
+          throw new Error(evt.message || "stream error");
+        }
+      }
+    }
     $("typing").style.display = "none";
+    if (!done) throw new Error("连接中断");
     const parts = [];
-    if (r.thought) parts.push("内心： " + r.thought);
-    if (r.action) parts.push("动作： " + r.action);
-    addMessage("char", r.reply, parts.join("\\n") || null);
-    (r.system_messages || []).forEach((m) => addSystem(m.message));
-    if (r.emotion && r.emotion.label) {
-      $("emotion").textContent = "情绪 " + r.emotion.label;
+    if (done.thought) parts.push("内心： " + done.thought);
+    if (done.action) parts.push("动作： " + done.action);
+    if (!gotDelta) stream.append(done.reply || "");
+    stream.attachExtra(parts.join("\\n") || null);
+    (done.system_messages || []).forEach((m) => addSystem(m.message));
+    if (done.emotion && done.emotion.label) {
+      $("emotion").textContent = "情绪 " + done.emotion.label;
     }
   } catch (e) {
     $("typing").style.display = "none";
+    if (!gotDelta) stream.remove();
     addSystem("请求失败：" + e.message);
   } finally {
     $("sendBtn").disabled = false;

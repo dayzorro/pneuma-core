@@ -138,6 +138,9 @@ class EmotionEngine:
             system_prompt=_build_system_prompt(personality),
             messages=truncated,
             model=self._model,
+            # 情绪评估在每轮请求的关键路径上，关闭思考以显著降低延迟
+            enable_thinking=False,
+            max_tokens=256,
         )
 
         try:

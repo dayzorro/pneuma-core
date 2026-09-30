@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import AsyncIterator
 
 import openai
 from openai import APIStatusError, APITimeoutError
@@ -41,10 +42,14 @@ class OpenAICompatAdapter:
         base_url: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         max_retries: int = MAX_RETRIES,
+        thinking_param: str | None = None,
     ) -> None:
         self.default_model = default_model
         self.base_url = base_url
         self._max_retries = max_retries
+        # 思考开关的 extra_body 键名（例如 DashScope 的 "enable_thinking"）。
+        # 为 None 时完全不干预模型的思考行为，避免对不支持的供应商报 400。
+        self._thinking_param = thinking_param
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -56,7 +61,8 @@ class OpenAICompatAdapter:
         """Create adapter from environment variables.
 
         Reads ``{env_prefix}_API_KEY`` (required), ``{env_prefix}_BASE_URL``,
-        ``{env_prefix}_MODEL`` and ``{env_prefix}_TIMEOUT``.
+        ``{env_prefix}_MODEL``, ``{env_prefix}_TIMEOUT`` and
+        ``{env_prefix}_THINKING_PARAM``.
         """
         api_key = os.environ.get(f"{env_prefix}_API_KEY")
         if not api_key:
@@ -66,11 +72,13 @@ class OpenAICompatAdapter:
         base_url = os.environ.get(f"{env_prefix}_BASE_URL")
         model = os.environ.get(f"{env_prefix}_MODEL", DEFAULT_MODEL)
         timeout = float(os.environ.get(f"{env_prefix}_TIMEOUT", DEFAULT_TIMEOUT))
+        thinking_param = os.environ.get(f"{env_prefix}_THINKING_PARAM") or None
         return cls(
             api_key=api_key,
             default_model=model,
             base_url=base_url,
             timeout=timeout,
+            thinking_param=thinking_param,
         )
 
     def _resolve_model(self, requested: str | None) -> str:
@@ -93,21 +101,22 @@ class OpenAICompatAdapter:
         Retries up to ``max_retries`` times with exponential backoff for
         429 (Rate Limit) and 5xx (Server Error) responses.
         """
-        messages: list[dict] = []
-        if request.system_prompt:
-            messages.append({"role": "system", "content": request.system_prompt})
-        messages.extend(request.messages)
+        messages = self._build_messages(request)
+        extra_body = self._build_extra_body(request)
 
         last_error: Exception | None = None
 
         for attempt in range(self._max_retries + 1):
             try:
-                response = await self._client.chat.completions.create(
-                    model=self._resolve_model(request.model),
-                    messages=messages,
-                    temperature=request.temperature,
-                    max_tokens=request.max_tokens,
-                )
+                kwargs: dict = {
+                    "model": self._resolve_model(request.model),
+                    "messages": messages,
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens,
+                }
+                if extra_body is not None:
+                    kwargs["extra_body"] = extra_body
+                response = await self._client.chat.completions.create(**kwargs)
 
                 choice = response.choices[0] if response.choices else None
                 content = (choice.message.content or "") if choice else ""
@@ -146,3 +155,58 @@ class OpenAICompatAdapter:
 
         # Should not reach here, but raise last error for safety
         raise last_error  # type: ignore[misc]
+
+    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[str]:
+        """Stream a chat completion, yielding incremental content deltas.
+
+        Unlike ``generate`` this performs no retries: once bytes start
+        flowing a retry would duplicate already-emitted text. Callers that
+        need retry semantics should fall back to ``generate``.
+        """
+        messages = self._build_messages(request)
+        extra_body = self._build_extra_body(request)
+
+        kwargs: dict = {
+            "model": self._resolve_model(request.model),
+            "messages": messages,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "stream": True,
+        }
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)
+        except APITimeoutError as e:
+            raise LLMTimeoutError(str(e)) from e
+
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            piece = getattr(delta, "content", None)
+            if piece:
+                yield piece
+
+    def _build_messages(self, request: LLMRequest) -> list[dict]:
+        """Prepend the system prompt to the message list."""
+        messages: list[dict] = []
+        if request.system_prompt:
+            messages.append({"role": "system", "content": request.system_prompt})
+        messages.extend(request.messages)
+        return messages
+
+    def _build_extra_body(self, request: LLMRequest) -> dict | None:
+        """Build the ``extra_body`` for provider-specific options.
+
+        Currently only controls the thinking / reasoning switch. When
+        ``thinking_param`` is unset the adapter never touches it, so
+        providers that do not understand the parameter are unaffected.
+        """
+        if not self._thinking_param:
+            return None
+        # None -> 适配器默认关闭思考；False -> 同样关闭；True -> 不发送，保留思考
+        if request.enable_thinking is True:
+            return None
+        return {self._thinking_param: False}

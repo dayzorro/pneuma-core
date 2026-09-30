@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from pneuma_core.exceptions import LLMTimeoutError
@@ -28,7 +29,10 @@ from pneuma_core.models.personality import Personality
 from pneuma_core.runtime.emotion_engine import NEUTRAL_EMOTION, EmotionEngine
 from pneuma_core.runtime.prompt_builder import PromptBuilder
 from pneuma_core.runtime.prompt_cache import CachedPrompt, PromptCache
-from pneuma_core.runtime.response_parser import parse_structured_response
+from pneuma_core.runtime.response_parser import (
+    extract_partial_speech,
+    parse_structured_response,
+)
 from pneuma_core.runtime.user_context import UserContext
 from pneuma_core.runtime.user_context_search import (
     UserContextSearchEngine,
@@ -38,6 +42,9 @@ from pneuma_core.runtime.middleware import Middleware, PipelineContext
 from pneuma_core.storage.backend import StorageBackend
 
 logger = logging.getLogger(__name__)
+
+# 流式增量回调：收到一段（已解码的）speech 文本时被 await
+OnDelta = Callable[[str], Awaitable[None]]
 
 
 class RuntimeEngine:
@@ -110,17 +117,23 @@ class RuntimeEngine:
 
         self._last_emotion_update: datetime | None = None
 
-    async def process_message(self, msg: MessageInput) -> MessageOutput:
-        """Process an incoming message and return a response."""
+    async def process_message(
+        self, msg: MessageInput, on_delta: OnDelta | None = None
+    ) -> MessageOutput:
+        """Process an incoming message and return a response.
+
+        Args:
+            msg: The incoming message.
+            on_delta: 可选。若提供且适配器支持流式，则在生成过程中
+                以增量文本回调（用于 SSE 流式输出）。此时返回的
+                MessageOutput 与一次性生成完全一致。
+        """
         now = datetime.now(timezone.utc)
         changes: list[ChangeRecord] = []
         system_messages: list[SystemMessage] = []
 
         # Increment turn count
         self._turn_count += 1
-
-        # Wait for any pending emotion estimation to complete
-        await self._collect_pending_emotion()
 
         # 1. Load character state
         character = await self._storage.get_character(self._character_id)
@@ -250,17 +263,26 @@ class RuntimeEngine:
         llm_succeeded = False
         response = None
         structured: StructuredResponse | None = None
+        llm_request = LLMRequest(
+            system_prompt=effective_system_prompt,
+            messages=self._build_messages_for_llm(),
+            model=self._response_model,
+            system_prompt_cached=_cached_section,
+            system_prompt_dynamic=_dynamic_section,
+            # 每轮回复在交互关键路径上，关闭思考以降低延迟
+            enable_thinking=False,
+        )
+        use_stream = (
+            on_delta is not None and hasattr(self._llm, "generate_stream")
+        )
         try:
-            response = await self._llm.generate(
-                LLMRequest(
-                    system_prompt=effective_system_prompt,
-                    messages=self._build_messages_for_llm(),
-                    model=self._response_model,
-                    system_prompt_cached=_cached_section,
-                    system_prompt_dynamic=_dynamic_section,
+            if use_stream:
+                response_text = await self._generate_streaming(
+                    llm_request, on_delta
                 )
-            )
-            response_text = response.content
+            else:
+                response = await self._llm.generate(llm_request)
+                response_text = response.content
             llm_succeeded = True
 
             # Parse structured response (speech/thought/action)
@@ -350,14 +372,20 @@ class RuntimeEngine:
                 model=response.model if response else "",
             )
         elif llm_succeeded:
-            # Normal mode: launch async emotion evaluation (non-blocking)
-            self._pending_emotion_task = asyncio.create_task(
-                self._async_emotion_evaluation(
-                    personality=character.personality,
-                    messages=list(self._history),
-                    current_emotion=current_emotion,
+            # Normal mode: launch async emotion evaluation (non-blocking).
+            # 若上一轮评估仍在进行则不重复启动，避免堆积；
+            # 其结果会在后续轮次通过 _latest_emotion 生效，绝不阻塞本轮回复。
+            if (
+                self._pending_emotion_task is None
+                or self._pending_emotion_task.done()
+            ):
+                self._pending_emotion_task = asyncio.create_task(
+                    self._async_emotion_evaluation(
+                        personality=character.personality,
+                        messages=list(self._history),
+                        current_emotion=current_emotion,
+                    )
                 )
-            )
 
         # Note: Episodic/semantic memory saving moved to SessionEndPipeline (#130)
 
@@ -458,15 +486,43 @@ class RuntimeEngine:
                 self._character_id, current_emotion
             )
 
-    async def _collect_pending_emotion(self) -> None:
-        """Wait for any pending emotion task to finish."""
-        if self._pending_emotion_task is not None:
+    async def aclose(self) -> None:
+        """等待仍在进行的情绪评估任务结束（应在会话结束时调用）。
+
+        轮次之间**不会**等待该任务，因此它不会拖慢交互。
+        """
+        task = self._pending_emotion_task
+        if task is not None and not task.done():
             try:
-                await self._pending_emotion_task
+                await task
             except Exception:
                 logger.warning("Pending emotion task failed")
-            finally:
-                self._pending_emotion_task = None
+        self._pending_emotion_task = None
+
+    async def _generate_streaming(
+        self, request: LLMRequest, on_delta: OnDelta
+    ) -> str:
+        """流式生成，边产生边通过 ``on_delta`` 推送 speech 增量。
+
+        Returns:
+            完整的原始输出（等价于一次性 generate 的 content），
+            供后续结构化解析使用。
+        """
+        buffer: list[str] = []
+        emitted = 0
+        async for piece in self._llm.generate_stream(request):  # type: ignore[attr-defined]
+            buffer.append(piece)
+            partial = extract_partial_speech("".join(buffer))
+            if len(partial) > emitted:
+                await on_delta(partial[emitted:])
+                emitted = len(partial)
+
+        raw = "".join(buffer)
+        # 纯文本兜底等情形下，最终 speech 可能仍多于已推送部分，补发差量
+        final_speech = parse_structured_response(raw).speech or ""
+        if len(final_speech) > emitted:
+            await on_delta(final_speech[emitted:])
+        return raw
 
     _SUMMARIZE_PROMPT = """\
 请简洁地总结以下对话内容。总结中需要包含：
@@ -512,6 +568,8 @@ class RuntimeEngine:
                     model="claude-haiku-4-5-20251001",
                     temperature=0.0,
                     max_tokens=512,
+                    # 摘要在历史裁剪时同步执行，关闭思考避免拖慢该轮
+                    enable_thinking=False,
                 )
             )
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from pneuma_core.server.config import ServerConfig
@@ -68,6 +69,40 @@ def create_app(config: ServerConfig | None = None) -> FastAPI:
                 status_code=409,
                 detail="No active session. Call POST /api/session/start first.",
             )
+
+    @app.post(
+        "/api/chat/stream",
+        summary="Send a message and stream the reply (Server-Sent Events)",
+    )
+    async def chat_stream(req: ChatRequest) -> StreamingResponse:
+        """以 SSE 流式返回回复。
+
+        事件为 ``data: {"type": ...}\\n\\n``，type 取值：
+        ``delta``（speech 增量）、``done``（含 emotion 等的完整返回体）、
+        ``error``。
+        """
+
+        async def event_source():
+            try:
+                async for event in service.chat_stream(req.message):
+                    payload = json.dumps(event, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+            except SessionNotStartedError:
+                payload = json.dumps(
+                    {"type": "error", "message": "No active session"},
+                    ensure_ascii=False,
+                )
+                yield f"data: {payload}\n\n"
+
+        return StreamingResponse(
+            event_source(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.post("/api/session/end", summary="End the session and consolidate memories")
     async def end_session() -> dict:
