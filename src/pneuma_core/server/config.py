@@ -6,10 +6,13 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from pneuma_core.knowledge import DEFAULT_DATA_DIR as DEFAULT_KNOWLEDGE_DIR
+
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8001
-DEFAULT_CHARACTER_FILE = "examples/aine.character.yaml"
+DEFAULT_CHARACTER_FILE = "examples/xiaorun-frontdesk.character.yaml"
 DEFAULT_DB_PATH = "vault/pneuma.db"
+DEFAULT_KNOWLEDGE_INDEX = "vault/knowledge_index.json"
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
@@ -44,6 +47,9 @@ class ServerConfig:
     history_limit: int = 30
     diagnostic_mode: bool = False
     user_context_dir: Path | None = None
+    knowledge_data_dir: Path = DEFAULT_KNOWLEDGE_DIR
+    knowledge_index_path: Path = Path(DEFAULT_KNOWLEDGE_INDEX)
+    knowledge_top_k: int = 3
 
     @classmethod
     def from_env(cls) -> ServerConfig:
@@ -85,4 +91,13 @@ class ServerConfig:
             history_limit=int(os.environ.get("PNEUMA_HISTORY_LIMIT", "30")),
             diagnostic_mode=_env_bool("PNEUMA_DIAGNOSTIC", False),
             user_context_dir=Path(user_context_dir) if user_context_dir else None,
+            knowledge_data_dir=Path(
+                os.environ.get("PNEUMA_KNOWLEDGE_DIR", str(DEFAULT_KNOWLEDGE_DIR))
+            ),
+            knowledge_index_path=Path(
+                os.environ.get(
+                    "PNEUMA_KNOWLEDGE_INDEX", DEFAULT_KNOWLEDGE_INDEX
+                )
+            ),
+            knowledge_top_k=int(os.environ.get("PNEUMA_KNOWLEDGE_TOP_K", "3")),
         )

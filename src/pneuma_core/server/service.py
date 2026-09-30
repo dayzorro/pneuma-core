@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pneuma_core.character_sheet import CharacterSheet
+from pneuma_core.knowledge.index import KnowledgeIndex
+from pneuma_core.knowledge.retriever import KnowledgeBase
 from pneuma_core.llm.embedding import OpenAIEmbeddingService
 from pneuma_core.llm.openai_compat import OpenAICompatAdapter
 from pneuma_core.models.message import MessageInput, MessageOutput
@@ -54,6 +56,7 @@ class ChatService:
         self._sheet: CharacterSheet | None = None
         self._engine: RuntimeEngine | None = None
         self._session: ConversationSession | None = None
+        self._knowledge_base: KnowledgeBase | None = None
         self._user_id: str = ""
         self._user_name: str = ""
 
@@ -78,11 +81,72 @@ class ChatService:
         ):
             await self._storage.save_emotional_state(character.id, sheet.initial_state)
 
+        self._knowledge_base = self._load_knowledge_base()
+
         logger.info(
             "Chat service ready (character=%s, db=%s)",
             character.name,
             self._config.db_path,
         )
+
+    # ── Knowledge base ───────────────────────────────────────────────────
+
+    def _load_knowledge_base(self) -> KnowledgeBase | None:
+        """加载本地知识库。
+
+        优先使用已构建好的索引（带向量）；索引不存在或不可用时，退化为
+        直接读 Markdown 目录的关键词检索。两者都没有则关闭知识库功能。
+        """
+        index_path = self._config.knowledge_index_path
+        if index_path is not None and index_path.is_file():
+            try:
+                index = KnowledgeIndex.load(index_path)
+                embedding_service = self._embedding
+                if index.model and index.model != self._config.embedding_model:
+                    logger.warning(
+                        "Knowledge index was built with model %s but embedding "
+                        "model is %s; falling back to keyword search",
+                        index.model,
+                        self._config.embedding_model,
+                    )
+                    embedding_service = None
+                kb = KnowledgeBase.from_index(
+                    index,
+                    embedding_service=embedding_service,
+                    top_k=self._config.knowledge_top_k,
+                )
+                logger.info(
+                    "Knowledge base ready (index=%s, chunks=%d, mode=%s)",
+                    index_path,
+                    kb.size,
+                    kb.search_mode,
+                )
+                return kb
+            except Exception as e:  # noqa: BLE001 - 知识库不可用不应阻止服务启动
+                logger.warning(
+                    "Failed to load knowledge index %s (%s: %s), "
+                    "falling back to documents",
+                    index_path,
+                    type(e).__name__,
+                    e,
+                )
+
+        docs_dir = self._config.knowledge_data_dir
+        if docs_dir is not None and docs_dir.is_dir():
+            kb = KnowledgeBase.from_directory(
+                docs_dir, top_k=self._config.knowledge_top_k
+            )
+            logger.info(
+                "Knowledge base ready (docs=%s, chunks=%d, mode=%s) — "
+                "run scripts/build_knowledge_index.py to enable vector search",
+                docs_dir,
+                kb.size,
+                kb.search_mode,
+            )
+            return kb
+
+        logger.info("Knowledge base disabled (no index and no documents found)")
+        return None
 
     # ── Character info ───────────────────────────────────────────────────
 
@@ -96,6 +160,7 @@ class ChatService:
         return {
             "id": character.id,
             "name": character.name,
+            "role_title": character.role_title,
             "profile": character.profile,
             "appearance": character.appearance,
             "speaking_style": character.speaking_style,
@@ -136,6 +201,7 @@ class ChatService:
             history_limit=self._config.history_limit,
             diagnostic_mode=self._config.diagnostic_mode,
             prompt_cache=PromptCache(),
+            knowledge_base=self._knowledge_base,
         )
         return {
             "session_id": self._session.session_id,
@@ -143,6 +209,7 @@ class ChatService:
             "character": {
                 "id": character.id,
                 "name": character.name,
+                "role_title": character.role_title,
                 "profile": character.profile,
             },
         }

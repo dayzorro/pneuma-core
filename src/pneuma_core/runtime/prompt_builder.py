@@ -6,6 +6,7 @@ import re as _re
 from dataclasses import dataclass
 from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _timezone
 
+from pneuma_core.knowledge.models import KnowledgeHit
 from pneuma_core.models.character import Character
 from pneuma_core.models.emotion import EmotionalState
 from pneuma_core.models.goals import GoalTree
@@ -124,13 +125,17 @@ class PromptBuilder:
 
     Sections:
         1. Profile（姓名、简介、外貌、背景）
-        2. Personality（Big Five + 描述）
-        3. Values（Schwartz + 描述）
-        4. UserContext（三级：always/session/RAG）
-        5. Memory（检索到的情节 + 语义记忆）
-        6. Goals（vision → objective → task）
-        7. State（PAD 情绪状态）
-        8. Speaking Style
+        2. Role（岗位：岗位名称与职责，用于前台/客服这类职业化角色）
+        3. Personality（Big Five + 描述）
+        4. Values（Schwartz + 描述）
+        5. UserContext（三级：always/session/RAG）
+        6. Memory（检索到的情节 + 语义记忆）
+        7. Goals（vision → objective → task）
+        8. Knowledge（本地知识库检索结果）
+        9. State（PAD 情绪状态）
+        10. Speaking Style
+        11. Service Rules（岗位守则：边界、话术、转交）
+        12. Response Format
     """
 
     def build(
@@ -147,10 +152,12 @@ class PromptBuilder:
         character_relations: list[Relation] | None = None,
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
+        knowledge_hits: list[KnowledgeHit] | None = None,
     ) -> str:
         """由多路上下文 + 用户上下文构建完整的 system prompt。"""
         sections = [
             self._build_profile_section(character),
+            self._build_role_section(character),
             self._build_personality_section(character),
             self._build_values_section(character),
             self._build_relations_section(character_relations),
@@ -166,9 +173,11 @@ class PromptBuilder:
                 user_tasks=user_tasks,
                 character_tasks=character_tasks,
             ),
+            self._build_knowledge_section(knowledge_hits),
             self._build_datetime_section(),
             self._build_state_section(emotional_state),
             self._build_speaking_style_section(character),
+            self._build_service_rules_section(character),
             self._build_response_format_section(),
         ]
         return "\n\n".join(s for s in sections if s)
@@ -182,12 +191,13 @@ class PromptBuilder:
         user_goal_tree: GoalTree | None = None,
         character_relations: list[Relation] | None = None,
     ) -> str:
-        """构建静态区段（简介、性格、价值观、用户上下文 Tier 1、说话风格）。
+        """构建静态区段（简介、岗位、性格、价值观、用户上下文 Tier 1、说话风格、岗位守则）。
 
         这些区段只依赖角色定义与用户上下文 Tier 1，在对话轮次之间不会变化。
         """
         sections = [
             self._build_profile_section(character),
+            self._build_role_section(character),
             self._build_personality_section(character),
             self._build_values_section(character),
             self._build_relations_section(character_relations),
@@ -197,6 +207,7 @@ class PromptBuilder:
             ),
             self._build_user_goals_section(user_goal_tree),
             self._build_speaking_style_section(character),
+            self._build_service_rules_section(character),
             self._build_response_format_section(),
         ]
         return "\n\n".join(s for s in sections if s)
@@ -212,8 +223,9 @@ class PromptBuilder:
         user_context_config: UserContextConfig | None = None,
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
+        knowledge_hits: list[KnowledgeHit] | None = None,
     ) -> str:
-        """构建动态区段（用户上下文 Tier 2+3、记忆、目标、任务、情绪状态）。
+        """构建动态区段（用户上下文 Tier 2+3、记忆、目标、任务、知识库、情绪状态）。
 
         这些区段每轮对话都会变化，需要每次重建。
         """
@@ -232,6 +244,7 @@ class PromptBuilder:
                 user_tasks=user_tasks,
                 character_tasks=character_tasks,
             ),
+            self._build_knowledge_section(knowledge_hits),
             self._build_datetime_section(),
             self._build_state_section(emotional_state),
         ]
@@ -415,11 +428,63 @@ class PromptBuilder:
 
         return "\n".join(lines)
 
+    def _build_role_section(self, character: Character) -> str:
+        """构建岗位区段（角色在什么岗位上、负责什么）。
+
+        只有设置了 role_title 的角色才会有该区段。
+        放在简介之后，让「我是谁、我在哪个岗位」在最前面确立。
+        """
+        if not character.role_title:
+            return ""
+
+        lines = ["## 我的岗位", f"岗位: {character.role_title}"]
+        if character.job_description:
+            lines.append("职责范围:")
+            lines.append(character.job_description.strip())
+        lines.append(
+            "\n（你是这个岗位上正在值班的员工，"
+            "全程以这个身份与对方交流，不要以通用助手的身份作答。）"
+        )
+        return "\n".join(lines)
+
+    def _build_service_rules_section(self, character: Character) -> str:
+        """构建岗位守则区段（行为边界、话术要求、转交流程）。
+
+        放在回复格式区段之前，借助近因偏置强化遵守。
+        """
+        if not character.service_rules:
+            return ""
+        return f"## 岗位守则（必须遵守）\n{character.service_rules.strip()}"
+
+    def _build_knowledge_section(
+        self, hits: list[KnowledgeHit] | None
+    ) -> str:
+        """由知识库检索结果构建参考资料区段。
+
+        没有命中时不生成区段，避免用「无资料」的提示诱导模型编造。
+        """
+        if not hits:
+            return ""
+
+        lines = [
+            "## 参考资料（本地知识库检索结果）",
+            "以下是与对方问题最相关的资料，回答时以此为准；"
+            "资料没有写到的内容，不要编造。",
+        ]
+        for hit in hits:
+            content = hit.chunk.content.strip().replace("\n", " ")
+            lines.append(f"- 【{hit.chunk.title}】{content}")
+        return "\n".join(lines)
+
     @staticmethod
     def _build_datetime_section() -> str:
-        """构建当前时间区段（JST）。"""
-        _JST = _timezone(_timedelta(hours=9))
-        now = _datetime.now(_JST)
+        """构建当前时间区段（北京时间 UTC+8）。
+
+        前台需要回答「现在几点」「今天周几」「还开不开门」这类问题，
+        时区必须与门店所在地一致。
+        """
+        _CST = _timezone(_timedelta(hours=8))
+        now = _datetime.now(_CST)
         weekdays = ["一", "二", "三", "四", "五", "六", "日"]
         wd = weekdays[now.weekday()]
         return f"## 当前时间\n{now.year}年{now.month}月{now.day}日（周{wd}） {now.hour}:{now.minute:02d}"

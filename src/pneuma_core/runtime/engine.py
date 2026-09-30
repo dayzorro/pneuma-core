@@ -9,6 +9,8 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from pneuma_core.exceptions import LLMTimeoutError
+from pneuma_core.knowledge.models import KnowledgeHit
+from pneuma_core.knowledge.retriever import KnowledgeBase
 from pneuma_core.llm.adapter import LLMAdapter, LLMRequest
 from pneuma_core.llm.embedding import EmbeddingService
 from pneuma_core.memory.search import MemorySearchEngine
@@ -80,6 +82,7 @@ class RuntimeEngine:
         user_goal_tree: GoalTree | None = None,
         character_relations: list | None = None,
         middlewares: list[Middleware] | None = None,
+        knowledge_base: KnowledgeBase | None = None,
     ) -> None:
         self._character_id = character_id
         self._storage = storage
@@ -99,6 +102,9 @@ class RuntimeEngine:
         # User context
         self._user_context = user_context
         self._user_context_search_engine = user_context_search_engine
+
+        # 本地知识库（可选）。用于「专业知识问答」：每轮检索后注入提示词。
+        self._knowledge_base = knowledge_base
 
         # User goal tree (optional)
         self._user_goal_tree = user_goal_tree
@@ -210,10 +216,26 @@ class RuntimeEngine:
                     component="user_context_search",
                 ))
 
+        # 2.6. Search local knowledge base (专业知识问答)
+        knowledge_hits: list[KnowledgeHit] = []
+        if self._knowledge_base is not None:
+            try:
+                knowledge_hits = await self._knowledge_base.search(msg.content)
+            except Exception:
+                logger.warning(
+                    "Knowledge search failed, continuing without knowledge"
+                )
+                system_messages.append(SystemMessage(
+                    type="warning",
+                    message="知识库检索失败，本轮将在没有资料的情况下继续对话",
+                    component="knowledge_search",
+                ))
+
         # 3. Build system prompt (use PromptCache if available)
         prompt_result = self._build_system_prompt(
             character, current_emotion, goals, memories,
             user_context_search_results=user_context_search_results,
+            knowledge_hits=knowledge_hits,
         )
         # Extract system_prompt and optional cached/dynamic sections
         if isinstance(prompt_result, CachedPrompt):
@@ -338,6 +360,7 @@ class RuntimeEngine:
                     messages=list(self._history),
                     turn_count=self._turn_count,
                     current_state=current_emotion,
+                    expressiveness=character.emotional_expressiveness,
                 )
                 trigger_type = emotion_result.trigger_type
                 trigger_reasons = list(emotion_result.reasons)
@@ -384,6 +407,7 @@ class RuntimeEngine:
                         personality=character.personality,
                         messages=list(self._history),
                         current_emotion=current_emotion,
+                        expressiveness=character.emotional_expressiveness,
                     )
                 )
 
@@ -421,6 +445,7 @@ class RuntimeEngine:
         goal_tree: GoalTree,
         memories: list[EpisodicMemory | SemanticMemory],
         user_context_search_results: list[UserContextSearchResult] | None = None,
+        knowledge_hits: list[KnowledgeHit] | None = None,
     ) -> str | CachedPrompt:
         """Build system prompt using PromptCache or PromptBuilder.
 
@@ -437,6 +462,7 @@ class RuntimeEngine:
                 user_context_search_results=user_context_search_results,
                 user_goal_tree=self._user_goal_tree,
                 character_relations=self._character_relations,
+                knowledge_hits=knowledge_hits,
             )
         return self._prompt_builder.build(
             character=character,
@@ -447,6 +473,7 @@ class RuntimeEngine:
             user_context_search_results=user_context_search_results,
             user_goal_tree=self._user_goal_tree,
             character_relations=self._character_relations,
+            knowledge_hits=knowledge_hits,
         )
 
     @staticmethod
@@ -465,6 +492,7 @@ class RuntimeEngine:
         personality: Personality,
         messages: list[dict],
         current_emotion: EmotionalState,
+        expressiveness: float = 1.0,
     ) -> None:
         """Run emotion evaluation via direct LLM estimation in the background."""
         try:
@@ -473,6 +501,7 @@ class RuntimeEngine:
                 messages=messages,
                 turn_count=self._turn_count,
                 current_state=current_emotion,
+                expressiveness=expressiveness,
             )
             self._latest_emotion = result.state
             if result.trigger_type != "skipped":

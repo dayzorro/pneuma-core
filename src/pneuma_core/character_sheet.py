@@ -177,6 +177,10 @@ class CharacterSheet:
             background=data.get("background"),
             personality_description=data.get("personality_description"),
             values_description=data.get("values_description"),
+            role_title=data.get("role_title"),
+            job_description=data.get("job_description"),
+            service_rules=data.get("service_rules"),
+            emotional_expressiveness=float(data.get("emotional_expressiveness", 1.0)),
         )
 
         initial_state = None
@@ -214,10 +218,15 @@ class CharacterSheet:
 
         # 可选的字符串字段
         for field in ("profile", "appearance", "speaking_style",
-                      "background", "personality_description", "values_description"):
+                      "background", "personality_description", "values_description",
+                      "role_title", "job_description", "service_rules"):
             val = getattr(c, field)
             if val is not None:
                 data[field] = val
+
+        # 情绪外显系数（1.0 为默认值，不写回 YAML）
+        if c.emotional_expressiveness != 1.0:
+            data["emotional_expressiveness"] = c.emotional_expressiveness
 
         # 性格
         p = c.personality

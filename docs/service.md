@@ -2,9 +2,13 @@
 
 Pneuma Core 自带一个基于 FastAPI 的单用户 HTTP 对话服务：**先设定「我是谁」，之后就像正常聊天一样发消息即可**。
 
+默认角色是**华润万家门店前台「小润」**（`examples/xiaorun-frontdesk.character.yaml`），
+配一份本地知识库，可以直接演示「前台人设 + 专业知识问答」。
+
 - 单用户：服务内部维护一个活动会话（`session`），无需每次传 user_id。
 - 全 OpenAI 兼容：LLM 与 Embedding 都走任意 OpenAI 兼容端点（阿里百炼 / DeepSeek / OpenRouter / vLLM / LM Studio…）。
 - 记忆在「会话结束」时由 LLM 统一整合（情节记忆 / 语义记忆 / 关系性）。
+- 知识库为只读资料，每轮按用户问题检索后注入提示词。
 
 ---
 
@@ -47,9 +51,21 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `PNEUMA_CHARACTER_FILE` | `examples/aine.character.yaml` | 角色卡 YAML |
+| `PNEUMA_CHARACTER_FILE` | `examples/xiaorun-frontdesk.character.yaml` | 角色卡 YAML（默认是门店前台「小润」；换回通用角色用 `examples/aine.character.yaml`） |
 | `PNEUMA_DB_PATH` | `vault/pneuma.db` | SQLite 路径（状态 / 记忆 / 关系持久化） |
 | `PNEUMA_USER_CONTEXT_DIR` | 未设置 | 可选的用户上下文目录（三级用户上下文 / RAG） |
+
+### 本地知识库
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PNEUMA_KNOWLEDGE_DIR` | 包内置的 `src/pneuma_core/knowledge/data/huarun` | Markdown 语料目录 |
+| `PNEUMA_KNOWLEDGE_INDEX` | `vault/knowledge_index.json` | 向量索引路径。存在则用向量检索；不存在或加载失败则退化为关键词检索 |
+| `PNEUMA_KNOWLEDGE_TOP_K` | `3` | 每轮注入提示词的知识块条数 |
+
+> 索引通过 `scripts/build_knowledge_index.py` 离线构建，服务启动时只做加载，
+> 不会在启动阶段调用 embedding 接口。索引模型与 `PNEUMA_EMBEDDING_MODEL` 不一致时
+> 会自动降级为关键词检索，并在日志中给出提示。
 
 ### 行为调优
 
@@ -68,13 +84,20 @@ cp .env.example .env
 uv pip install -e ".[server]"
 # 或：pip install "pneuma-core[server]"
 
-# 加载 .env 并启动
+# 加载 .env
 set -a && . ./.env && set +a
+
+# 构建知识库向量索引（可选；不构建则自动退化为关键词检索）
+python scripts/build_knowledge_index.py
+
+# 启动
 python -m pneuma_core.server
 # 等价于安装了控制台脚本时： pneuma-server
 ```
 
-启动后访问 API 文档：<http://localhost:8001/docs>
+也可以用仓库自带的脚本后台启动：`./scripts/start_server.sh`（`--fg` 前台调试）。
+
+启动后访问 Web 界面：<http://localhost:8001/>，API 文档：<http://localhost:8001/docs>
 
 ---
 
@@ -97,15 +120,16 @@ BASE=http://localhost:8001
 # 1) 设定我是谁
 curl -X POST $BASE/api/session/start \
   -H 'Content-Type: application/json' \
-  -d '{"user_id":"u1","user_name":"小明"}'
-# → {"session_id":"sess-...","user":{...},"character":{"name":"夏澜",...}}
+  -d '{"user_id":"u1","user_name":"张女士"}'
+# → {"session_id":"sess-...","user":{...},
+#    "character":{"name":"小润","role_title":"华润万家 · 顾客服务前台",...}}
 
 # 2) 正常对话
 curl -X POST $BASE/api/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message":"最近读的书里有什么推荐吗？"}'
-# → {"reply":"...","thought":"...","action":null,
-#    "emotion":{"pleasure":..,"arousal":..,"dominance":..,"label":".."},
+  -d '{"message":"你们几点开门？"}'
+# → {"reply":"您好，本店营业时间是每天 08:00 到 22:30……","thought":"...","action":"微笑着点头",
+#    "emotion":{"pleasure":..,"arousal":..,"dominance":..,"label":"亲切"},
 #    "system_messages":[]}
 
 # 3) 查看状态
@@ -151,10 +175,20 @@ curl -X POST $BASE/api/session/end
 ```
 src/pneuma_core/server/
 ├── config.py     # ServerConfig：从环境变量构建配置
-├── service.py    # ChatService：存储/LLM/Embedding/Engine/会话生命周期
+├── service.py    # ChatService：存储/LLM/Embedding/知识库/Engine/会话生命周期
 ├── app.py        # FastAPI 路由与请求模型
+├── web.py        # 内嵌的单页 Web UI（前台风格）
 ├── __init__.py
 └── __main__.py   # python -m pneuma_core.server
+
+src/pneuma_core/knowledge/
+├── models.py     # KnowledgeChunk / KnowledgeHit
+├── chunker.py    # Markdown → 知识块
+├── index.py      # 向量索引构建与落盘
+├── retriever.py  # KnowledgeBase：向量检索 + 关键词兜底
+└── data/huarun/  # 随仓库分发的华润万家语料
+
+scripts/build_knowledge_index.py  # 离线构建向量索引
 ```
 
 相关适配器：

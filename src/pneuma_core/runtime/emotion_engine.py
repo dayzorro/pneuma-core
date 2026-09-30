@@ -108,16 +108,23 @@ class EmotionEngine:
         messages: list[dict],
         turn_count: int,
         current_state: EmotionalState,
+        *,
+        expressiveness: float = 1.0,
     ) -> EmotionResult:
         """每轮都通过直接的 LLM 估计来评估情绪。
 
         每轮调用一次 estimate() 直接获得 PAD 值。
         不再使用 Tier 0/1 门控——相较此前的混合触发机制已简化。
 
+        Args:
+            expressiveness: 情绪外显系数（0.0〜1.0），见 estimate()。
+
         Returns:
             trigger_type="triggered" 的 EmotionResult。
         """
-        state = await self.estimate(personality, messages)
+        state = await self.estimate(
+            personality, messages, expressiveness=expressiveness
+        )
         return EmotionResult(
             state=state,
             trigger_type="triggered",
@@ -127,8 +134,17 @@ class EmotionEngine:
         self,
         personality: Personality,
         messages: list[dict],
+        *,
+        expressiveness: float = 1.0,
     ) -> EmotionalState:
         """通过 LLM 从对话中估计情绪状态。
+
+        Args:
+            expressiveness: 情绪外显系数（0.0〜1.0）。小于 1.0 时，把 PAD 相对
+                性格基线的偏移按该系数收敛——这是「服务型岗位」的收敛开关：
+                前台仍有情绪起伏，但幅度被压到一个专业得体的区间。
+                情绪标签由 LLM 给出并原样保留（它是描述性的展示字段），
+                内心状态的起伏幅度由 PAD 数值承载。
 
         任何错误（JSON 格式错误、缺字段、LLM 异常）都返回中立状态。
         """
@@ -176,12 +192,39 @@ class EmotionEngine:
         except (ValueError, TypeError):
             return NEUTRAL_EMOTION
 
+        if expressiveness < 1.0:
+            pleasure, arousal, dominance = self._damp_towards_baseline(
+                personality, pleasure, arousal, dominance, expressiveness
+            )
+
         return EmotionalState(
             pleasure=pleasure,
             arousal=arousal,
             dominance=dominance,
             emotion_label=_sanitize_text(str(data["emotion_label"]), _MAX_LABEL_LEN),
             situation=_sanitize_text(str(data["situation"]), _MAX_SITUATION_LEN),
+        )
+
+    @staticmethod
+    def _damp_towards_baseline(
+        personality: Personality,
+        pleasure: float,
+        arousal: float,
+        dominance: float,
+        expressiveness: float,
+    ) -> tuple[float, float, float]:
+        """把 PAD 相对性格基线的偏移按 expressiveness 收敛。
+
+        ``damped = baseline + (value - baseline) × expressiveness``
+
+        expressiveness=1.0 时不做任何处理；越小，越贴近角色的性格基线，
+        即「情绪起伏更收敛」。
+        """
+        base_p, base_a, base_d = personality_to_pad_baseline(personality)
+        return (
+            _clamp(base_p + (pleasure - base_p) * expressiveness),
+            _clamp(base_a + (arousal - base_a) * expressiveness),
+            _clamp(base_d + (dominance - base_d) * expressiveness),
         )
 
     def decay_towards_baseline(

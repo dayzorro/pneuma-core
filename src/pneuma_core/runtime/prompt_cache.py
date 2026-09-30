@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pneuma_core.knowledge.models import KnowledgeHit
 from pneuma_core.models.character import Character
 from pneuma_core.models.emotion import EmotionalState
 from pneuma_core.models.goals import GoalTree
@@ -56,6 +57,7 @@ class PromptCache:
         character_relations: list[Relation] | None = None,
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
+        knowledge_hits: list[KnowledgeHit] | None = None,
     ) -> CachedPrompt:
         """Build a CachedPrompt with static/dynamic separation."""
         static = self._get_or_build_static(
@@ -74,6 +76,7 @@ class PromptCache:
             user_context_config=user_context_config,
             user_tasks=user_tasks,
             character_tasks=character_tasks,
+            knowledge_hits=knowledge_hits,
         )
         return CachedPrompt(static_section=static, dynamic_section=dynamic)
 
@@ -119,6 +122,7 @@ class PromptCache:
         user_context_config: UserContextConfig | None = None,
         user_tasks: list[dict] | None = None,
         character_tasks: list[dict] | None = None,
+        knowledge_hits: list[KnowledgeHit] | None = None,
     ) -> str:
         """Build dynamic sections (always rebuilt)."""
         return self._builder.build_dynamic_sections(
@@ -130,4 +134,5 @@ class PromptCache:
             user_context_config=user_context_config,
             user_tasks=user_tasks,
             character_tasks=character_tasks,
+            knowledge_hits=knowledge_hits,
         )
