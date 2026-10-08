@@ -97,6 +97,58 @@ def extract_partial_speech(buffer: str) -> str:
     return "".join(out)
 
 
+def speech_field_complete(buffer: str) -> bool:
+    """判断流式缓冲区里的 ``speech`` 字段是否已经闭合。
+
+    用于「speech 一旦说完就先发完成事件」的流式优化：只要检测到 speech
+    值的结束引号，就说明台词已经生成完，后续的 thought / action 还在这条
+    流里继续生成，不必等它们。
+
+    Args:
+        buffer: 目前已累积的原始输出。
+
+    Returns:
+        speech 字段的值是否已经闭合（``"speech": null`` 这类非字符串值
+        不会被判定为闭合，交由调用方在流结束时兜底）。
+    """
+    text = buffer
+
+    stripped = text.lstrip()
+    if stripped.startswith("```"):
+        nl = stripped.find("\n")
+        if nl == -1:
+            return False
+        offset = len(text) - len(stripped)
+        text = text[offset + nl + 1:]
+
+    if "{" not in text:
+        return False
+
+    match = _SPEECH_KEY_RE.search(text)
+    if not match:
+        return False
+
+    i = match.end()
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            if i + 1 >= n:
+                return False
+            if text[i + 1] == "u":
+                if i + 6 > n:
+                    return False
+                i += 6
+                continue
+            i += 2
+            continue
+        if ch == '"':
+            return True
+        i += 1
+
+    return False
+
+
 def parse_structured_response(raw: str) -> StructuredResponse:
     """Parse a raw LLM response into a StructuredResponse.
 

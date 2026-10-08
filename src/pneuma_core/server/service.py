@@ -22,6 +22,7 @@ from pneuma_core.llm.openai_compat import OpenAICompatAdapter
 from pneuma_core.models.message import MessageInput, MessageOutput
 from pneuma_core.runtime.engine import RuntimeEngine
 from pneuma_core.runtime.insight_acquirer import InsightAcquirer
+from pneuma_core.runtime.latency import LatencyMetrics
 from pneuma_core.runtime.prompt_cache import PromptCache
 from pneuma_core.runtime.session import ConversationSession
 from pneuma_core.runtime.session_end_pipeline import SessionEndPipeline
@@ -54,6 +55,8 @@ class ChatService:
             default_model=config.llm_model,
             base_url=config.llm_base_url,
             timeout=config.llm_timeout,
+            # 只有配了键名才会真正下发「关闭思考」，否则不干预供应商行为
+            thinking_param=config.llm_thinking_param,
         )
         self._embedding = OpenAIEmbeddingService(
             api_key=config.embedding_api_key,
@@ -71,6 +74,38 @@ class ChatService:
         self._insight_acquirer: InsightAcquirer | None = None
         self._user_id: str = ""
         self._user_name: str = ""
+
+        # 服务级联网开关（网页可切换）。默认关闭，交互关键路径上不触发外网。
+        self._web_search_enabled: bool = config.web_search_enabled
+
+        # 交互时延埋点（跨会话累积，取最近 N 轮的分位数）
+        self._metrics = LatencyMetrics()
+
+    # ── 运行设置 ─────────────────────────────────────────────────────────
+
+    def settings(self) -> dict[str, Any]:
+        """当前可在线调整的运行设置。"""
+        return {"web_search": self._web_search_enabled}
+
+    def update_settings(self, *, web_search: bool | None = None) -> dict[str, Any]:
+        """更新运行设置并返回最新值。"""
+        if web_search is not None:
+            self._web_search_enabled = bool(web_search)
+        return self.settings()
+
+    def _effective_web_search_mode(self) -> str:
+        """把服务级开关折算成本轮的联网模式。"""
+        if not self._web_search_enabled:
+            return "off"
+        return self._config.web_search_mode
+
+    def metrics_snapshot(self) -> dict[str, Any]:
+        """返回各阶段时延的 P50 / P95 快照。"""
+        return self._metrics.snapshot()
+
+    def reset_metrics(self) -> None:
+        """清空时延样本。"""
+        self._metrics.reset()
 
     # ── Setup ────────────────────────────────────────────────────────────
 
@@ -283,6 +318,7 @@ class ChatService:
             web_search_client=self._web_search,
             web_search_mode=self._config.web_search_mode,
             insight_acquirer=self._insight_acquirer,
+            metrics=self._metrics,
         )
         return {
             "session_id": self._session.session_id,
@@ -337,7 +373,8 @@ class ChatService:
                 sender_id=self._user_id,
                 sender_name=self._user_name,
                 sender_type="human",
-            )
+            ),
+            web_search_mode=self._effective_web_search_mode(),
         )
 
         self._record_turn(message, output)
@@ -359,6 +396,14 @@ class ChatService:
         async def on_delta(text: str) -> None:
             await queue.put({"type": "delta", "text": text})
 
+        done_sent = False
+
+        async def on_speech_complete(payload: dict[str, Any]) -> None:
+            """speech 说完即发 done，不等 thought / action 生成完毕。"""
+            nonlocal done_sent
+            done_sent = True
+            await queue.put({"type": "done", **payload})
+
         async def run() -> None:
             try:
                 assert self._engine is not None
@@ -370,9 +415,28 @@ class ChatService:
                         sender_type="human",
                     ),
                     on_delta=on_delta,
+                    on_speech_complete=on_speech_complete,
+                    web_search_mode=self._effective_web_search_mode(),
                 )
                 self._record_turn(message, output)
-                await queue.put({"type": "done", **self._output_payload(output)})
+                # 适配器不支持流式等情况下无法提前发出 done，这里兜底
+                if not done_sent:
+                    await queue.put({"type": "done", **self._output_payload(output)})
+                # 内心独白 / 动作等补充信息随后补发
+                await queue.put({
+                    "type": "detail",
+                    "thought": output.thought,
+                    "action": output.action,
+                    "system_messages": [
+                        {
+                            "type": m.type,
+                            "message": m.message,
+                            "component": m.component,
+                        }
+                        for m in output.system_messages
+                    ],
+                    "web_sources": output.web_sources,
+                })
             except Exception as e:  # noqa: BLE001 - 边界处转成事件而非抛出
                 logger.warning("chat_stream failed: %s: %s", type(e).__name__, e)
                 await queue.put({"type": "error", "message": str(e)})

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
@@ -29,11 +31,13 @@ from pneuma_core.models.message import (
 )
 from pneuma_core.models.personality import Personality
 from pneuma_core.runtime.emotion_engine import NEUTRAL_EMOTION, EmotionEngine
+from pneuma_core.runtime.latency import LatencyMetrics
 from pneuma_core.runtime.prompt_builder import PromptBuilder
 from pneuma_core.runtime.prompt_cache import CachedPrompt, PromptCache
 from pneuma_core.runtime.response_parser import (
     extract_partial_speech,
     parse_structured_response,
+    speech_field_complete,
 )
 from pneuma_core.runtime.user_context import UserContext
 from pneuma_core.runtime.user_context_search import (
@@ -51,6 +55,10 @@ logger = logging.getLogger(__name__)
 
 # 流式增量回调：收到一段（已解码的）speech 文本时被 await
 OnDelta = Callable[[str], Awaitable[None]]
+
+# 「台词已说完」回调：speech 字段生成完毕时立即触发，早于 thought/action，
+# 用于让上层先把回复判为完成，不必等整段 JSON（含内心戏）生成完。
+OnSpeechComplete = Callable[[dict], Awaitable[None]]
 
 
 class RuntimeEngine:
@@ -90,6 +98,7 @@ class RuntimeEngine:
         web_search_client: WebSearchClient | None = None,
         web_search_mode: str = DEFAULT_WEB_SEARCH_MODE,
         insight_acquirer: InsightAcquirer | None = None,
+        metrics: LatencyMetrics | None = None,
     ) -> None:
         self._character_id = character_id
         self._storage = storage
@@ -125,12 +134,19 @@ class RuntimeEngine:
         # Character relations (optional)
         self._character_relations = character_relations
 
-        # Middleware chain
+        # 中间件链
         self._middlewares: list[Middleware] = middlewares or []
+
+        # 时延埋点聚合器（可选）。为 None 时只采集不统计。
+        self._metrics = metrics
 
         self._history: list[dict] = []
         self._conversation_summary: str | None = None
         self._pending_emotion_task: asyncio.Task | None = None
+        # 历史摘要异步化：裁剪同步完成，摘要走后台。此前摘要在关键路径上
+        # 同步 await，历史超限后每轮会触发两次 LLM 往返。
+        self._pending_summary_messages: list[dict] = []
+        self._summary_task: asyncio.Task | None = None
         # 后台的认知提炼任务（联网结果 → 行业认知块）
         self._insight_tasks: set[asyncio.Task] = set()
         self._latest_emotion: EmotionalState | None = None
@@ -139,7 +155,11 @@ class RuntimeEngine:
         self._last_emotion_update: datetime | None = None
 
     async def process_message(
-        self, msg: MessageInput, on_delta: OnDelta | None = None
+        self,
+        msg: MessageInput,
+        on_delta: OnDelta | None = None,
+        on_speech_complete: OnSpeechComplete | None = None,
+        web_search_mode: str | None = None,
     ) -> MessageOutput:
         """Process an incoming message and return a response.
 
@@ -148,10 +168,25 @@ class RuntimeEngine:
             on_delta: 可选。若提供且适配器支持流式，则在生成过程中
                 以增量文本回调（用于 SSE 流式输出）。此时返回的
                 MessageOutput 与一次性生成完全一致。
+            on_speech_complete: 可选。speech 字段生成完毕时立即回调，
+                用于让上层先把「回复」判为完成，而不必等 thought/action。
+            web_search_mode: 可选。覆盖本轮的联网模式（``off`` 可确保
+                本轮完全不触发外网调用）。
         """
         now = datetime.now(timezone.utc)
         changes: list[ChangeRecord] = []
         system_messages: list[SystemMessage] = []
+
+        # 时延埋点：按阶段记录耗时（毫秒），轮末交给 _metrics 聚合
+        t_start = time.perf_counter()
+        timings: dict[str, float | None] = {}
+        _last = t_start
+
+        def _lap(stage: str) -> None:
+            nonlocal _last
+            current = time.perf_counter()
+            timings[stage] = (current - _last) * 1000.0
+            _last = current
 
         # Increment turn count
         self._turn_count += 1
@@ -186,41 +221,68 @@ class RuntimeEngine:
         goals = await self._storage.get_goals(self._character_id)
         if goals is None:
             goals = GoalTree()
+        _lap("state")
 
-        # 2. Search relevant memories
-        memories = []
+        # 2. Query embedding —— 只算一次，供记忆 / 知识 / 用户上下文检索复用。
+        #    此前每个检索器各自调用一次 embedding，同一 query 最多触发 3 次
+        #    远程往返，全部串在首字之前。
+        query_embedding: list[float] | None = None
         try:
             query_embedding = await self._embedding_service.embed(msg.content)
-            episodic = await self._memory_store.get_episodic_by_character(
-                self._character_id
+        except Exception:
+            logger.warning(
+                "Query embedding failed, continuing without vector search"
             )
-            semantic = await self._memory_store.get_semantic_by_character(
-                self._character_id
-            )
-            all_memories = list(episodic) + list(semantic)
-            if all_memories and query_embedding:
+            system_messages.append(SystemMessage(
+                type="warning",
+                message="向量化失败，本轮记忆与知识检索已降级",
+                component="embedding",
+            ))
+        _lap("embedding")
+
+        # 2.1 三类检索互不依赖，并发执行，把关键路径从「求和」压成「取最大」
+        async def _search_memories() -> list:
+            if not query_embedding:
+                return []
+            branch_start = time.perf_counter()
+            try:
+                episodic = await self._memory_store.get_episodic_by_character(
+                    self._character_id
+                )
+                semantic = await self._memory_store.get_semantic_by_character(
+                    self._character_id
+                )
+                all_memories = list(episodic) + list(semantic)
+                if not all_memories:
+                    return []
                 scored = self._memory_search.search(
                     memories=all_memories,
                     query_embedding=query_embedding,
                     personality=character.personality,
                     now=now,
                 )
-                memories = [m for m, _score in scored]
-        except Exception:
-            logger.warning("Memory search failed, continuing without memories")
-            system_messages.append(SystemMessage(
-                type="warning",
-                message="记忆检索失败，本轮将在没有记忆的情况下继续对话",
-                component="memory_search",
-            ))
-
-        # 2.5. Search user context (RAG Tier 3) if available
-        user_context_search_results: list[UserContextSearchResult] = []
-        if self._user_context_search_engine is not None:
-            try:
-                user_context_search_results = (
-                    await self._user_context_search_engine.search(msg.content)
+                return [m for m, _score in scored]
+            except Exception:
+                logger.warning(
+                    "Memory search failed, continuing without memories"
                 )
+                system_messages.append(SystemMessage(
+                    type="warning",
+                    message="记忆检索失败，本轮将在没有记忆的情况下继续对话",
+                    component="memory_search",
+                ))
+                return []
+            finally:
+                timings["retrieve_memory"] = (
+                    time.perf_counter() - branch_start
+                ) * 1000.0
+
+        async def _search_user_context() -> list[UserContextSearchResult]:
+            if self._user_context_search_engine is None:
+                return []
+            branch_start = time.perf_counter()
+            try:
+                return await self._user_context_search_engine.search(msg.content)
             except Exception:
                 logger.warning(
                     "User context search failed, continuing without results"
@@ -230,12 +292,20 @@ class RuntimeEngine:
                     message="用户上下文检索失败，本轮将在没有其结果的情况下继续对话",
                     component="user_context_search",
                 ))
+                return []
+            finally:
+                timings["retrieve_user_context"] = (
+                    time.perf_counter() - branch_start
+                ) * 1000.0
 
-        # 2.6. Search local knowledge base (专业知识问答)
-        knowledge_hits: list[KnowledgeHit] = []
-        if self._knowledge_base is not None:
+        async def _search_knowledge() -> list[KnowledgeHit]:
+            if self._knowledge_base is None:
+                return []
+            branch_start = time.perf_counter()
             try:
-                knowledge_hits = await self._knowledge_base.search(msg.content)
+                return await self._knowledge_base.search(
+                    msg.content, query_embedding=query_embedding
+                )
             except Exception:
                 logger.warning(
                     "Knowledge search failed, continuing without knowledge"
@@ -245,12 +315,30 @@ class RuntimeEngine:
                     message="知识库检索失败，本轮将在没有资料的情况下继续对话",
                     component="knowledge_search",
                 ))
+                return []
+            finally:
+                timings["retrieve_knowledge"] = (
+                    time.perf_counter() - branch_start
+                ) * 1000.0
+
+        (
+            memories,
+            user_context_search_results,
+            knowledge_hits,
+        ) = await asyncio.gather(
+            _search_memories(),
+            _search_user_context(),
+            _search_knowledge(),
+        )
+        _lap("retrieve_wait")
 
         # 2.7. 联网检索：本地资料答不上、且问题指向外部实时信息时才走外网
+        #      （依赖知识库结果，故在并发检索之后判定）
         web_response: WebSearchResponse | None = None
+        effective_web_mode = web_search_mode or self._web_search_mode
         if self._web_search_client is not None and should_search_online(
             msg.content,
-            mode=self._web_search_mode,
+            mode=effective_web_mode,
             has_local_hits=bool(knowledge_hits),
         ):
             try:
@@ -274,6 +362,25 @@ class RuntimeEngine:
                 and self._insight_acquirer is not None
             ):
                 self._schedule_insight_acquisition(msg.content, web_response)
+        _lap("web_search")
+
+        # 2.8. speech 说完即回调：让上层先把「回复」判为完成，不被后面的
+        #      thought / action 生成拖住（它们与前段是同一次生成的后半截）。
+        async def _emit_speech_complete(speech: str) -> None:
+            if on_speech_complete is None:
+                return
+            await on_speech_complete({
+                "reply": speech,
+                "emotion": {
+                    "pleasure": current_emotion.pleasure,
+                    "arousal": current_emotion.arousal,
+                    "dominance": current_emotion.dominance,
+                    "label": current_emotion.emotion_label,
+                },
+                "web_sources": (
+                    web_response.sources() if web_response else []
+                ),
+            })
 
         # 3. Build system prompt (use PromptCache if available)
         prompt_result = self._build_system_prompt(
@@ -291,6 +398,7 @@ class RuntimeEngine:
             system_prompt = prompt_result
             _cached_section = None
             _dynamic_section = None
+        _lap("prompt_build")
 
         # 3.5. Run middleware pre_process chain
         pipeline_context = PipelineContext(
@@ -311,6 +419,7 @@ class RuntimeEngine:
                     "Middleware %s pre_process failed, continuing",
                     type(mw).__name__,
                 )
+        _lap("preprocess")
 
         # 4. Add user message to history
         self._history.append({
@@ -318,6 +427,7 @@ class RuntimeEngine:
             "content": f"[{msg.sender_name}] {msg.content}",
         })
         await self._trim_history()
+        _lap("history")
 
         # 5. Generate LLM response
         # Append conversation summary to system_prompt (not in messages)
@@ -342,10 +452,22 @@ class RuntimeEngine:
         use_stream = (
             on_delta is not None and hasattr(self._llm, "generate_stream")
         )
+        llm_start = time.perf_counter()
+        _last = llm_start
+
+        async def _timed_on_delta(text: str) -> None:
+            """记录首字延迟（仅流式路径），并把增量转发给上层。"""
+            if "llm_first_token" not in timings:
+                timings["llm_first_token"] = (
+                    time.perf_counter() - llm_start
+                ) * 1000.0
+            if on_delta is not None:
+                await on_delta(text)
+
         try:
             if use_stream:
                 response_text = await self._generate_streaming(
-                    llm_request, on_delta
+                    llm_request, _timed_on_delta, _emit_speech_complete
                 )
             else:
                 response = await self._llm.generate(llm_request)
@@ -367,11 +489,16 @@ class RuntimeEngine:
                 message="LLM 调用失败，已改用兜底回复",
                 component="llm",
             ))
+        finally:
+            _lap("llm_total")
 
-        # Add assistant response to history (speech only, not full JSON)
+        # Add assistant response to history.
+        # 存规范化的结构化 JSON（而非 speech 纯文本）：否则上下文里会累积
+        # 一批「纯文本助手示例」，与 system prompt 要求的 JSON 格式不一致，
+        # 模型会在几轮后被带偏、不再输出 thought / action。
         self._history.append({
             "role": "assistant",
-            "content": speech_text,
+            "content": self._history_assistant_content(structured, speech_text),
         })
         await self._trim_history()
 
@@ -392,6 +519,7 @@ class RuntimeEngine:
         # 7. Save change records
         for change in changes:
             await self._storage.save_change(change)
+        _lap("finalize")
 
         # 8. Emotion evaluation
         diagnostic: DiagnosticInfo | None = None
@@ -481,6 +609,17 @@ class RuntimeEngine:
                     "Middleware %s post_process failed, continuing",
                     type(mw).__name__,
                 )
+        _lap("post_process")
+
+        # 时延埋点：整轮耗时与分阶段样本
+        timings["total"] = (time.perf_counter() - t_start) * 1000.0
+        if self._metrics is not None:
+            self._metrics.observe(timings)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "turn latency (ms): %s",
+                {k: round(v, 1) for k, v in timings.items() if v is not None},
+            )
 
         return output
 
@@ -523,6 +662,25 @@ class RuntimeEngine:
             character_relations=self._character_relations,
             knowledge_hits=knowledge_hits,
             web_search=web_search,
+        )
+
+    @staticmethod
+    def _history_assistant_content(
+        structured: StructuredResponse | None, speech_text: str
+    ) -> str:
+        """把助手轮次规范成结构化 JSON 文本，作为上下文中的格式示例。
+
+        无法解析成结构化响应（模型直接回了纯文本）时退回原文，至少不丢内容。
+        """
+        if structured is None:
+            return speech_text
+        return json.dumps(
+            {
+                "speech": structured.speech,
+                "thought": structured.thought,
+                "action": structured.action,
+            },
+            ensure_ascii=False,
         )
 
     @staticmethod
@@ -591,6 +749,14 @@ class RuntimeEngine:
                 logger.warning("Pending emotion task failed")
         self._pending_emotion_task = None
 
+        summary_task = self._summary_task
+        if summary_task is not None and not summary_task.done():
+            try:
+                await summary_task
+            except Exception:
+                logger.warning("Pending summary task failed")
+        self._summary_task = None
+
         pending = [t for t in self._insight_tasks if not t.done()]
         if pending:
             try:
@@ -600,9 +766,15 @@ class RuntimeEngine:
         self._insight_tasks.clear()
 
     async def _generate_streaming(
-        self, request: LLMRequest, on_delta: OnDelta
+        self,
+        request: LLMRequest,
+        on_delta: OnDelta,
+        on_speech_complete: OnSpeechComplete | None = None,
     ) -> str:
         """流式生成，边产生边通过 ``on_delta`` 推送 speech 增量。
+
+        ``on_speech_complete`` 在 speech 字段闭合的那一刻立即触发一次，
+        早于 thought / action 生成完毕。
 
         Returns:
             完整的原始输出（等价于一次性 generate 的 content），
@@ -610,18 +782,30 @@ class RuntimeEngine:
         """
         buffer: list[str] = []
         emitted = 0
+        speech_closed = False
         async for piece in self._llm.generate_stream(request):  # type: ignore[attr-defined]
             buffer.append(piece)
-            partial = extract_partial_speech("".join(buffer))
+            joined = "".join(buffer)
+            partial = extract_partial_speech(joined)
             if len(partial) > emitted:
                 await on_delta(partial[emitted:])
                 emitted = len(partial)
+            if (
+                not speech_closed
+                and on_speech_complete is not None
+                and speech_field_complete(joined)
+            ):
+                speech_closed = True
+                await on_speech_complete(partial)
 
         raw = "".join(buffer)
         # 纯文本兜底等情形下，最终 speech 可能仍多于已推送部分，补发差量
         final_speech = parse_structured_response(raw).speech or ""
         if len(final_speech) > emitted:
             await on_delta(final_speech[emitted:])
+        # 流中未能判定 speech 闭合（如 speech 为 null）时，兜底补一次
+        if not speech_closed and on_speech_complete is not None:
+            await on_speech_complete(final_speech)
         return raw
 
     _SUMMARIZE_PROMPT = """\
@@ -679,14 +863,31 @@ class RuntimeEngine:
             logger.warning("History summarization failed, continuing with simple trim")
 
     async def _trim_history(self) -> None:
-        """Trim conversation history to limit, summarizing old messages."""
-        if len(self._history) > self._history_limit:
-            # Calculate how many messages to remove
-            overflow = len(self._history) - self._history_limit
-            messages_to_summarize = self._history[:overflow]
+        """裁剪历史到上限；被裁掉的消息交给后台摘要，不阻塞本轮回复。
 
-            # Summarize the old messages
-            await self._summarize_old_messages(messages_to_summarize)
+        此前摘要在关键路径上同步 await（一次完整 LLM 调用），而历史超限后
+        每次 append（用户消息、助手消息各一次）都会触发，等于每轮凭空多出
+        一到两次 LLM 往返。现在裁剪同步完成、摘要走后台任务。
+        """
+        if len(self._history) <= self._history_limit:
+            return
 
-            # Keep only the most recent messages within limit
-            self._history = self._history[-self._history_limit :]
+        overflow = len(self._history) - self._history_limit
+        self._pending_summary_messages.extend(self._history[:overflow])
+        self._history = self._history[-self._history_limit :]
+        self._schedule_summarization()
+        # 让刚排入的后台任务立刻起步：真实网络调用会在此挂起并让出控制权，
+        # 不占用本轮回复；对不含真实 await 的场景也能确保它被及时执行。
+        await asyncio.sleep(0)
+
+    def _schedule_summarization(self) -> None:
+        """把待摘要消息丢进后台任务；已有任务在跑时并入同一批处理。"""
+        if self._summary_task is None or self._summary_task.done():
+            self._summary_task = asyncio.create_task(self._run_summarization())
+
+    async def _run_summarization(self) -> None:
+        """按到达顺序逐批摘要，保证摘要可以层层累积。"""
+        while self._pending_summary_messages:
+            batch = self._pending_summary_messages
+            self._pending_summary_messages = []
+            await self._summarize_old_messages(batch)

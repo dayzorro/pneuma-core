@@ -48,12 +48,18 @@ class ServerConfig:
 
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
+    # 日志级别。设为 debug 可看到每轮的时延埋点明细。
+    log_level: str = "info"
     character_file: Path = Path(DEFAULT_CHARACTER_FILE)
     db_path: Path = Path(DEFAULT_DB_PATH)
     llm_base_url: str | None = None
     llm_api_key: str = ""
     llm_model: str = DEFAULT_LLM_MODEL
     llm_timeout: float = 60.0
+    # 思考开关的 extra_body 键名（例如 DashScope 的 "enable_thinking"）。
+    # 为空时不干预模型思考行为，避免对不支持的供应商报 400；交互场景建议
+    # 配成 enable_thinking 以真正关闭思考、降低首字延迟。
+    llm_thinking_param: str | None = None
     embedding_base_url: str | None = None
     embedding_api_key: str = ""
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
@@ -71,6 +77,9 @@ class ServerConfig:
     bocha_freshness: str = DEFAULT_BOCHA_FRESHNESS
     bocha_answer: bool = DEFAULT_BOCHA_ANSWER
     web_search_mode: str = DEFAULT_WEB_SEARCH_MODE
+    # 联网检索的服务级开关（网页可切换）。False = 无条件不联网，
+    # 交互关键路径上完全不触发外网调用。
+    web_search_enabled: bool = False
     # 认知库（联网信息提炼出的行业通识认知块）
     insight_store_path: Path = Path(DEFAULT_INSIGHT_STORE)
     insight_max_per_turn: int = DEFAULT_INSIGHT_MAX_PER_TURN
@@ -99,6 +108,7 @@ class ServerConfig:
         return cls(
             host=os.environ.get("PNEUMA_HOST", DEFAULT_HOST),
             port=int(os.environ.get("PNEUMA_PORT", DEFAULT_PORT)),
+            log_level=os.environ.get("PNEUMA_LOG_LEVEL", "info").strip().lower() or "info",
             character_file=Path(
                 os.environ.get("PNEUMA_CHARACTER_FILE", DEFAULT_CHARACTER_FILE)
             ),
@@ -107,6 +117,9 @@ class ServerConfig:
             llm_api_key=llm_api_key,
             llm_model=os.environ.get("PNEUMA_LLM_MODEL", DEFAULT_LLM_MODEL),
             llm_timeout=float(os.environ.get("PNEUMA_LLM_TIMEOUT", "60")),
+            llm_thinking_param=(
+                os.environ.get("PNEUMA_LLM_THINKING_PARAM") or None
+            ),
             embedding_base_url=embedding_base_url,
             embedding_api_key=embedding_api_key,
             embedding_model=os.environ.get(
@@ -141,6 +154,7 @@ class ServerConfig:
             web_search_mode=normalize_mode(
                 os.environ.get("PNEUMA_WEB_SEARCH_MODE", DEFAULT_WEB_SEARCH_MODE)
             ),
+            web_search_enabled=_env_bool("PNEUMA_WEB_SEARCH_ENABLED", False),
             insight_store_path=Path(
                 os.environ.get("PNEUMA_INSIGHT_STORE", DEFAULT_INSIGHT_STORE)
             ),

@@ -287,10 +287,12 @@ class InsightKnowledgeBase:
     def search_mode(self) -> str:
         return self._ensure().search_mode
 
-    async def search(self, query: str) -> list[KnowledgeHit]:
+    async def search(
+        self, query: str, *, query_embedding: list[float] | None = None
+    ) -> list[KnowledgeHit]:
         if self._store.size == 0:
             return []
-        return await self._ensure().search(query)
+        return await self._ensure().search(query, query_embedding=query_embedding)
 
 
 class MergedKnowledgeBase:
@@ -305,13 +307,15 @@ class MergedKnowledgeBase:
         self._bases = bases
         self._top_k = max(1, top_k)
 
-    async def search(self, query: str) -> list[KnowledgeHit]:
+    async def search(
+        self, query: str, *, query_embedding: list[float] | None = None
+    ) -> list[KnowledgeHit]:
         merged: list[KnowledgeHit] = []
         seen: set[str] = set()
 
         for base in self._bases:
             try:
-                hits = await base.search(query)
+                hits = await base.search(query, query_embedding=query_embedding)
             except Exception as e:  # noqa: BLE001 - 单个子库失败不影响其它库
                 logger.warning(
                     "Knowledge base %s search failed: %s: %s",

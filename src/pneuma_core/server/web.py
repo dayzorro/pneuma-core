@@ -71,6 +71,13 @@ INDEX_HTML = """<!DOCTYPE html>
     border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
   }
   .chip b { color: var(--brand); font-weight: 600; }
+  .switch {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 12px; color: var(--muted); user-select: none; white-space: nowrap;
+    padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+  }
+  .switch input { margin: 0; accent-color: var(--brand); }
+  .switch.on { color: var(--brand); border-color: var(--brand); }
 
   button {
     font: inherit; cursor: pointer; border-radius: 8px;
@@ -156,6 +163,10 @@ INDEX_HTML = """<!DOCTYPE html>
       <div class="sub" id="charSub">服务台</div>
     </div>
     <div class="chip" id="emotion">状态 —</div>
+    <label class="switch" id="webSwitch" title="开启后，本地资料答不上时会联网检索（会增加回复时延）">
+      <input type="checkbox" id="webToggle" />
+      <span>联网检索</span>
+    </label>
     <button id="endBtn" style="display:none">结束会话</button>
   </div>
 </header>
@@ -214,6 +225,30 @@ async function loadCharacter() {
     $("charSub").textContent = c.role_title || (c.profile || "").trim().split("\\n")[0];
   } catch (e) {
     $("charName").textContent = "无法连接服务";
+  }
+}
+
+async function loadSettings() {
+  try {
+    const s = await api("/api/settings");
+    $("webToggle").checked = !!s.web_search;
+    $("webSwitch").classList.toggle("on", !!s.web_search);
+  } catch (e) {
+    // 设置读取失败不应阻塞对话
+  }
+}
+
+async function toggleWebSearch() {
+  const enabled = $("webToggle").checked;
+  $("webSwitch").classList.toggle("on", enabled);
+  try {
+    const s = await api("/api/settings", { web_search: enabled });
+    $("webToggle").checked = !!s.web_search;
+    $("webSwitch").classList.toggle("on", !!s.web_search);
+  } catch (e) {
+    $("webToggle").checked = !enabled;
+    $("webSwitch").classList.toggle("on", !enabled);
+    addSystem("联网开关设置失败：" + e.message);
   }
 }
 
@@ -375,6 +410,7 @@ async function send() {
     const decoder = new TextDecoder();
     let buf = "";
     let done = null;
+    let detail = null;
     while (true) {
       const chunk = await reader.read();
       if (chunk.done) break;
@@ -390,7 +426,13 @@ async function send() {
           gotDelta = true;
           stream.append(evt.text);
         } else if (evt.type === "done") {
+          // speech 说完即到达，此时 thought / action 可能还没生成
           done = evt;
+          if (!gotDelta) stream.append(done.reply || "");
+          const earlyLabel = done.emotion && done.emotion.label ? done.emotion.label : null;
+          if (earlyLabel) $("emotion").innerHTML = "状态 <b>" + earlyLabel + "</b>";
+        } else if (evt.type === "detail") {
+          detail = evt;
         } else if (evt.type === "error") {
           throw new Error(evt.message || "stream error");
         }
@@ -399,11 +441,12 @@ async function send() {
     $("typing").style.display = "none";
     if (!done) throw new Error("连接中断");
     if (!gotDelta) stream.append(done.reply || "");
-    stream.setStage(done.action);
-    attachSources(stream.element, done.web_sources);
+    const extra = detail || done;
+    stream.setStage(extra.action);
+    attachSources(stream.element, extra.web_sources);
     const label = done.emotion && done.emotion.label ? done.emotion.label : null;
-    attachExtra(stream.element, buildExtra(done.thought, done.action, label));
-    (done.system_messages || []).forEach((m) => addSystem(m.message));
+    attachExtra(stream.element, buildExtra(extra.thought, extra.action, label));
+    (extra.system_messages || []).forEach((m) => addSystem(m.message));
     if (label) $("emotion").innerHTML = "状态 <b>" + label + "</b>";
   } catch (e) {
     $("typing").style.display = "none";
@@ -440,8 +483,10 @@ $("userName").addEventListener("keydown", (e) => { if (e.key === "Enter") start(
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
+$("webToggle").addEventListener("change", toggleWebSearch);
 renderQuick();
 loadCharacter();
+loadSettings();
 </script>
 </body>
 </html>

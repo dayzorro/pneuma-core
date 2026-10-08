@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import uvicorn
 
 from pneuma_core.server.app import create_app
@@ -16,9 +18,12 @@ def main() -> None:
     (see ``scripts/stop_server.sh``).
     """
     config = ServerConfig.from_env()
+    logging.basicConfig(level=config.log_level.upper())
     app = create_app(config)
     server = uvicorn.Server(
-        uvicorn.Config(app, host=config.host, port=config.port)
+        uvicorn.Config(
+            app, host=config.host, port=config.port, log_level=config.log_level
+        )
     )
     app.state.uvicorn_server = server
     server.run()

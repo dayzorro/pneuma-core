@@ -126,15 +126,24 @@ class KnowledgeBase:
             return "vector"
         return "keyword"
 
-    async def search(self, query: str) -> list[KnowledgeHit]:
-        """检索与 query 最相关的知识块。"""
+    async def search(
+        self, query: str, *, query_embedding: list[float] | None = None
+    ) -> list[KnowledgeHit]:
+        """检索与 query 最相关的知识块。
+
+        Args:
+            query: 用户问题。
+            query_embedding: 可选。调用方如果已经算好该 query 的向量，
+                传入即可复用，避免同一次交互里重复请求 embedding 接口。
+        """
         query = (query or "").strip()
         if not query or not self._chunks:
             return []
 
         if self._embedding_service is not None and self.has_embeddings:
             try:
-                query_embedding = await self._embedding_service.embed(query)
+                if query_embedding is None:
+                    query_embedding = await self._embedding_service.embed(query)
                 hits = self._search_vector(query_embedding)
                 if hits:
                     return hits

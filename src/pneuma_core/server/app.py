@@ -27,6 +27,14 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
 
 
+class SettingsRequest(BaseModel):
+    """Runtime settings that can be toggled from the web UI."""
+
+    web_search: bool | None = Field(
+        default=None, description="是否启用联网检索（默认关闭）"
+    )
+
+
 def create_app(config: ServerConfig | None = None) -> FastAPI:
     """Create the FastAPI app with a lazily-configured ChatService."""
     cfg = config or ServerConfig.from_env()
@@ -114,6 +122,23 @@ def create_app(config: ServerConfig | None = None) -> FastAPI:
     @app.get("/api/state", summary="Current emotion, memories and relations")
     async def state() -> dict:
         return await service.state()
+
+    @app.get("/api/settings", summary="Runtime settings")
+    async def get_settings() -> dict:
+        return service.settings()
+
+    @app.post("/api/settings", summary="Update runtime settings")
+    async def update_settings(req: SettingsRequest) -> dict:
+        return service.update_settings(web_search=req.web_search)
+
+    @app.get("/api/metrics", summary="Per-stage latency percentiles (P50/P95)")
+    async def metrics() -> dict:
+        return service.metrics_snapshot()
+
+    @app.post("/api/metrics/reset", summary="Reset latency samples")
+    async def reset_metrics() -> dict:
+        service.reset_metrics()
+        return service.metrics_snapshot()
 
     @app.post("/api/admin/shutdown", include_in_schema=False)
     async def shutdown(request: Request) -> dict:

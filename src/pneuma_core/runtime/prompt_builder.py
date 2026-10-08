@@ -583,6 +583,8 @@ class PromptBuilder:
             '  "thought": "内心独白（角色心里想的）",\n'
             '  "action": "身体动作（微笑、偏头等）"\n'
             "}\n\n"
+            "- 必须先输出 speech 字段，再输出 thought / action；"
+            "字段顺序不可调换，也不要先写 thought\n"
             "- speech: 只写角色说出口的话，"
             "不要包含旁白、叙述或动作描写；为 null 时表示沉默\n"
             "- thought: 心里想的内容，可省略（null）\n"

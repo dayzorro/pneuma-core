@@ -1282,8 +1282,8 @@ class TestStructuredOutput:
         assert result.action is None
 
     @pytest.mark.asyncio
-    async def test_history_stores_speech_only(self) -> None:
-        """会話履歴には speech のみ格納される（JSON 全体ではない）."""
+    async def test_history_stores_structured_json(self) -> None:
+        """会話履歴には正規化した構造化 JSON を格納する（書式ドリフト防止）."""
         storage, llm, embedding, memory_store = _setup_mocks()
 
         call_count = 0
@@ -1317,9 +1317,12 @@ class TestStructuredOutput:
         request = second_call[0][0]
         assistant_msgs = [m for m in request.messages if m["role"] == "assistant"]
         assert len(assistant_msgs) >= 1
-        # 履歴には speech のみ（JSON ではない）
-        assert assistant_msgs[0]["content"] == "こんにちは"
-        assert "thought" not in assistant_msgs[0]["content"]
+        # 履歴は構造化 JSON（thought / action を含む）で、書式の見本として機能する。
+        # 純テキストだと数ターン後にモデルが JSON 出力をやめてしまうため。
+        payload = json.loads(assistant_msgs[0]["content"])
+        assert payload["speech"] == "こんにちは"
+        assert payload["thought"] == "嬉しそうだな"
+        assert payload["action"] == "微笑む"
 
     @pytest.mark.asyncio
     async def test_fallback_response_no_thought_action(self) -> None:
